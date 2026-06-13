@@ -128,6 +128,31 @@ export async function chatStream(
   return requestId;
 }
 
+/**
+ * 看截圖(M5):Rust 截取主螢幕 → 視覺模型描述。結果走同一組 chat-* 事件。
+ * prompt 留空時 Rust 會用預設「看看螢幕並評論」。
+ */
+export async function visionChat(prompt: string, handlers: StreamHandlers): Promise<string> {
+  const requestId = crypto.randomUUID();
+  if (!isTauri) {
+    window.setTimeout(() => {
+      const text = "[happy](開發模式)我看到一個很棒的螢幕喔~";
+      handlers.onDelta(text);
+      handlers.onDone(text);
+    }, 400);
+    return requestId;
+  }
+  await ensureListeners();
+  active.set(requestId, handlers);
+  invoke("vision_chat", { requestId, prompt }).catch((err) => {
+    if (active.has(requestId)) {
+      handlers.onError(String(err));
+      active.delete(requestId);
+    }
+  });
+  return requestId;
+}
+
 /** 放棄追蹤某個請求(UI 已不關心時) */
 export function abandonRequest(requestId: string): void {
   active.delete(requestId);

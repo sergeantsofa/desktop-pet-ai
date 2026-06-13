@@ -23,6 +23,7 @@ Windows 桌面常駐的 Live2D 虛擬人助理,全本地運算優先。本倉庫
 - ✅ M3 前半:Agent 工具呼叫(OpenAI function calling、串流 tool_calls 解析、多輪工具迴圈)+ 權限分級(唯讀自動;開網頁/雲端讀剪貼簿先跳確認卡片,60 秒未回應視同拒絕)。內建工具:查時間、讀剪貼簿、開網頁、看系統狀態
 - ✅ M4 長期記憶:SQLite(`%APPDATA%\com.desktoppet.ai\memory.db`)。她用 save_memory / search_memory / forget_memory 工具自主記憶,最近 30 條注入 system prompt;對話紀錄落地、重啟自動接上;設定面板可一鍵清除
 - ✅ M4.5 主動行為:提醒(set/list/cancel_reminder 工具 + scheduler 每 20 秒檢查,到期主動跳視窗+朗讀;關閉期間錯過的開機補發)+ 閒置主動找話題(可在設定開關/調閒置分鐘數);主動發話走 persist=false 不污染對話紀錄
+- ✅ M5 視覺(看截圖):`Ctrl+Shift+V` / 托盤截取主螢幕(截圖前自動隱藏自己、縮到 1366px)→ 本地視覺模型(預設 ollama `qwen2.5vl:3b`,設定 → 任務路由「看圖」可換)→ 看圖並評論;走 OpenAI 多模態 image_url 格式,結果不落對話紀錄
 - ⬜ M3 後半:寫入類工具(寫檔、執行指令)+ 沙箱
 - ⬜ M4.6:記憶向量檢索(語意搜尋舊記憶)
 
@@ -82,6 +83,7 @@ npm run tauri build
 | 點擊角色身體 | 隨機台詞 + 動作 |
 | `Ctrl+Shift+A` | 喚出/收合對話輸入框(Enter 送出,串流顯示+情緒表情+朗讀) |
 | `Ctrl+Shift+S` | 開始/結束語音輸入(需 Whisper,見 setup-speech.ps1;最長 60 秒自動結束) |
+| `Ctrl+Shift+V` / 托盤 → 看看我的螢幕 | 她截取主螢幕交給本地視覺模型,看圖並評論(截圖前自動藏起自己) |
 | 思考中再送一句 | 打斷舊回應,直接回答新訊息 |
 | 「○分鐘後提醒我…」/「提醒我幾點…」 | 她設提醒,到時主動跳出來講(關 App 期間錯過的會在開機補發) |
 | 閒置太久 | 她會主動找你聊天(可在設定關閉或調整分鐘數) |
@@ -105,7 +107,8 @@ desktop-pet-ai/
 │   │   ├── speech/          # Piper TTS / Whisper STT sidecar 管理(M2)
 │   │   ├── agent/           # 工具註冊/執行、權限確認(M3)
 │   │   ├── memory/          # SQLite 長期記憶 + 對話紀錄 + 提醒(M4 / M4.5)
-│   │   └── scheduler.rs     # 提醒到期檢查、主動行為排程(M4.5)
+│   │   ├── scheduler.rs     # 提醒到期檢查、主動行為排程(M4.5)
+│   │   └── vision.rs        # 螢幕截圖(xcap;縮圖→PNG→base64)(M5)
 │   ├── capabilities/        # 前端權限(Tauri v2 capability)
 │   └── tauri.conf.json
 ├── src/                     # 前端(Vue 3 + TS)

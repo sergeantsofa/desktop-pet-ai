@@ -46,7 +46,22 @@ const TASKS: Array<{ id: string; label: string }> = [
   { id: "chat", label: "閒聊" },
   { id: "coder", label: "寫程式" },
   { id: "reasoner", label: "推理" },
+  { id: "vision", label: "看圖" },
 ];
+
+/** 舊設定檔可能缺某些任務路由,補上預設以免 UI 綁定到 undefined */
+const ROUTE_DEFAULTS: Record<string, { provider: string; model: string }> = {
+  chat: { provider: "ollama", model: "qwen2.5:7b" },
+  coder: { provider: "ollama", model: "qwen2.5-coder:7b" },
+  reasoner: { provider: "ollama", model: "deepseek-r1:7b" },
+  vision: { provider: "ollama", model: "qwen2.5vl:3b" },
+};
+
+function ensureRoutes(s: Settings): void {
+  for (const t of TASKS) {
+    if (!s.routing[t.id]) s.routing[t.id] = { ...ROUTE_DEFAULTS[t.id] };
+  }
+}
 
 onMounted(async () => {
   characters.value = await loadCharacters();
@@ -78,9 +93,12 @@ onMounted(async () => {
       context_turns: 10,
       agent_enabled: true,
     };
+    ensureRoutes(settings.value);
     return;
   }
-  settings.value = await getSettings();
+  const loaded = await getSettings();
+  ensureRoutes(loaded);
+  settings.value = loaded;
   deepseekKeySet.value = await hasApiKey("deepseek");
 });
 

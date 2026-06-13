@@ -75,6 +75,10 @@ impl Default for Settings {
             "reasoner".into(),
             TaskRoute { provider: "ollama".into(), model: "deepseek-r1:7b".into() },
         );
+        routing.insert(
+            "vision".into(),
+            TaskRoute { provider: "ollama".into(), model: "qwen2.5vl:3b".into() },
+        );
         Self {
             providers: vec![
                 ProviderCfg {
@@ -213,4 +217,30 @@ pub async fn chat_stream(
 #[tauri::command]
 pub fn cancel_chat(cancel: State<CancelState>, request_id: String) {
     cancel.0.lock().unwrap().insert(request_id);
+}
+
+/// 看截圖(M5):截取主螢幕 → 送視覺模型;結果走同一組 chat-* 事件回傳。
+#[tauri::command]
+pub async fn vision_chat(
+    app: AppHandle,
+    state: State<'_, SettingsState>,
+    cancel: State<'_, CancelState>,
+    request_id: String,
+    prompt: String,
+) -> Result<(), String> {
+    let settings = state.0.lock().unwrap().clone();
+    cancel.0.lock().unwrap().remove(&request_id);
+    let prompt = if prompt.trim().is_empty() {
+        "看看我現在的螢幕,簡短說說你看到什麼、給點評論或吐槽。".to_string()
+    } else {
+        prompt
+    };
+    // 截圖是阻塞操作(藏視窗+抓圖),丟到 blocking 執行緒
+    let app2 = app.clone();
+    let image_b64 = tauri::async_runtime::spawn_blocking(move || {
+        crate::vision::capture_screen_base64(&app2)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    provider::run_vision(app, settings, request_id, image_b64, prompt).await
 }

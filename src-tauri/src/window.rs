@@ -25,6 +25,11 @@ fn voice_shortcut() -> Shortcut {
     Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyS)
 }
 
+/// 全域快捷鍵:Ctrl+Shift+V 讓她看一眼螢幕(M5)
+fn vision_shortcut() -> Shortcut {
+    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV)
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct WindowPos {
     x: i32,
@@ -81,6 +86,11 @@ pub fn shortcut_handler(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEve
             let _ = win.show();
         }
         let _ = app.emit("toggle-voice", ());
+    } else if shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyV) {
+        if let Some(win) = app.get_webview_window(MAIN_WINDOW) {
+            let _ = win.show();
+        }
+        let _ = app.emit("see-screen", ());
     }
 }
 
@@ -91,6 +101,9 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
     }
     if let Err(e) = app.global_shortcut().register(voice_shortcut()) {
         eprintln!("[window] 語音快捷鍵註冊失敗: {e}");
+    }
+    if let Err(e) = app.global_shortcut().register(vision_shortcut()) {
+        eprintln!("[window] 看螢幕快捷鍵註冊失敗: {e}");
     }
 
     restore_position(app.handle());
@@ -111,6 +124,7 @@ fn build_tray(app: &mut App) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let mute = CheckMenuItem::with_id(app, "mute", "靜音", true, false, None::<&str>)?;
+    let see_screen = MenuItem::with_id(app, "see_screen", "看看我的螢幕", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let settings = MenuItem::with_id(app, "settings", "設定…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "結束", true, None::<&str>)?;
@@ -122,6 +136,7 @@ fn build_tray(app: &mut App) -> tauri::Result<()> {
             &click_through,
             &smart_passthrough,
             &mute,
+            &see_screen,
             &separator,
             &settings,
             &quit,
@@ -168,6 +183,12 @@ fn build_tray(app: &mut App) -> tauri::Result<()> {
             "mute" => {
                 let muted = mute_item.is_checked().unwrap_or(false);
                 let _ = app.emit("set-mute", muted);
+            }
+            "see_screen" => {
+                if let Some(win) = app.get_webview_window(MAIN_WINDOW) {
+                    let _ = win.show();
+                }
+                let _ = app.emit("see-screen", ());
             }
             "settings" => {
                 // M0:設定頁尚未實作,先通知前端顯示提示

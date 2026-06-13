@@ -114,6 +114,61 @@ fn build_convo(app: &AppHandle, settings: &Settings, messages: &[ChatMessage]) -
     convo
 }
 
+/// 看截圖(M5):把螢幕 PNG(base64)+ 提示送給 vision 路由的視覺模型。
+/// 走 OpenAI 多模態訊息格式;不用工具、不做降級(本地視覺模型沒有雲端對應)。
+pub async fn run_vision(
+    app: AppHandle,
+    settings: Settings,
+    request_id: String,
+    image_b64: String,
+    prompt: String,
+) -> Result<(), String> {
+    // 舊設定檔可能沒有 vision 路由 → 退回本地預設
+    let route = settings.routing.get("vision").cloned().unwrap_or(TaskRoute {
+        provider: "ollama".into(),
+        model: "qwen2.5vl:3b".into(),
+    });
+    let provider = find_provider(&settings, &route.provider)?;
+
+    let convo = vec![
+        json!({
+            "role": "system",
+            "content": format!(
+                "你是「{name}」。{persona}\n你正在看使用者的螢幕截圖。\
+                 用你的口吻、繁體中文、口語且簡短地回應。\
+                 回應開頭先給一個情緒標籤(從 [happy] [sad] [angry] [surprised] [shy] [sleepy] [neutral] 擇一)。",
+                name = settings.persona.name,
+                persona = settings.persona.system_prompt,
+            ),
+        }),
+        json!({
+            "role": "user",
+            "content": [
+                { "type": "text", "text": prompt },
+                { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{image_b64}") } },
+            ],
+        }),
+    ];
+
+    let mut started = false;
+    let outcome = stream_once(&app, &provider, &route.model, &request_id, &convo, false, &mut started).await;
+    match outcome {
+        Ok(StreamOutcome::Done(full)) => {
+            emit_done(&app, &request_id, &full, false);
+            Ok(())
+        }
+        // 視覺模型不給工具;真有 tool_calls 也當完成處理
+        Ok(StreamOutcome::ToolCalls { content, .. }) => {
+            emit_done(&app, &request_id, &content, false);
+            Ok(())
+        }
+        Err(err) => {
+            emit_error(&app, &request_id, &err);
+            Err(err)
+        }
+    }
+}
+
 fn find_provider(settings: &Settings, id: &str) -> Result<ProviderCfg, String> {
     settings
         .providers

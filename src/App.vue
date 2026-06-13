@@ -10,6 +10,7 @@ import {
 } from "./live2d/stage";
 import {
   chatStream,
+  visionChat,
   cancelChat,
   healthCheck,
   loadRecentHistory,
@@ -17,6 +18,7 @@ import {
   isTauri,
   type ChatMessage,
   type PermissionRequest,
+  type StreamHandlers,
 } from "./llm/api";
 import { speak, stopSpeaking } from "./speech/tts";
 import { startRecording, stopRecording, cancelRecording } from "./speech/recorder";
@@ -86,6 +88,8 @@ async function setupTauriEvents(): Promise<void> {
   await listen<{ content: string }>("reminder-due", (e) => {
     void onReminderDue(e.payload.content);
   });
+  // M5:看截圖(Ctrl+Shift+V / 托盤)
+  await listen("see-screen", () => void seeScreen());
   // 智慧穿透:游標不在角色/UI 上時讓滑鼠穿透到下層(托盤開關)
   await listen<boolean>("smart-passthrough", (e) => {
     if (e.payload) {
@@ -146,71 +150,73 @@ const EMOTION_RE = /^\s*\[(\w+)\]\s*/;
 let currentRequestId: string | null = null;
 
 interface StreamOpts {
-  /** 落地對話紀錄(主動關心/提醒傳 false) */
-  persist: boolean;
   /** 出錯時是否在泡泡顯示(主動行為失敗應安靜,傳 false) */
   showError?: boolean;
+  /** 思考中的占位字(看截圖時顯示「看看…」) */
+  thinkingText?: string;
 }
 
-/** 串流一輪對話並負責顯示/情緒/朗讀;回傳清乾淨的回覆(失敗回空字串)。 */
-function streamReply(messages: ChatMessage[], opts: StreamOpts): Promise<string> {
+/**
+ * 串流一輪回應並負責顯示/情緒/朗讀;回傳清乾淨的回覆(失敗回空字串)。
+ * `start` 啟動底層串流(對話 chatStream / 看圖 visionChat),回傳 requestId。
+ */
+function streamReply(
+  start: (handlers: StreamHandlers) => Promise<string>,
+  opts: StreamOpts = {}
+): Promise<string> {
   markActivity();
   thinking.value = true;
-  sayStreaming("(思考中…)");
+  const placeholder = opts.thinkingText ?? "(思考中…)";
+  sayStreaming(placeholder);
 
   let pending = "";
   let emotionDone = false;
   let prefix = "";
 
   return new Promise<string>((resolve) => {
-    void chatStream(
-      "chat",
-      messages,
-      {
-        onDelta(delta) {
-          pending += delta;
-          if (!emotionDone) {
-            const m = pending.match(EMOTION_RE);
-            if (m) {
-              emotionDone = true;
-              setEmotion(m[1]);
-              pending = pending.replace(EMOTION_RE, "");
-            } else if (pending.length > 16) {
-              emotionDone = true; // 模型沒給標籤,放棄等待
-            } else {
-              return; // 標籤可能還沒收完,先不顯示
-            }
+    void start({
+      onDelta(delta) {
+        pending += delta;
+        if (!emotionDone) {
+          const m = pending.match(EMOTION_RE);
+          if (m) {
+            emotionDone = true;
+            setEmotion(m[1]);
+            pending = pending.replace(EMOTION_RE, "");
+          } else if (pending.length > 16) {
+            emotionDone = true; // 模型沒給標籤,放棄等待
+          } else {
+            return; // 標籤可能還沒收完,先不顯示
           }
-          sayStreaming(prefix + pending);
-        },
-        onDone(full) {
-          thinking.value = false;
-          currentRequestId = null;
-          const clean = full.replace(EMOTION_RE, "").trim();
-          say(prefix + (clean || "(…我詞窮了)"), Math.min(15000, 3000 + clean.length * 80));
-          if (!muted.value && clean) void speak(clean);
-          resolve(clean);
-        },
-        onError(message) {
-          thinking.value = false;
-          currentRequestId = null;
-          if (opts.showError) {
-            setEmotion("sad");
-            say(`嗚…我的腦袋連不上:${message}`, 8000);
-          } else if (bubbleText.value === "(思考中…)") {
-            bubbleText.value = "";
-          }
-          resolve("");
-        },
-        onFallback(_from, to) {
-          prefix = `(雲端連不上,改用${to})\n`;
-        },
-        onTool(label) {
-          sayStreaming(`${prefix + pending}\n🔧(${label}中…)`.trim());
-        },
+        }
+        sayStreaming(prefix + pending);
       },
-      opts.persist
-    ).then((id) => (currentRequestId = id));
+      onDone(full) {
+        thinking.value = false;
+        currentRequestId = null;
+        const clean = full.replace(EMOTION_RE, "").trim();
+        say(prefix + (clean || "(…我詞窮了)"), Math.min(15000, 3000 + clean.length * 80));
+        if (!muted.value && clean) void speak(clean);
+        resolve(clean);
+      },
+      onError(message) {
+        thinking.value = false;
+        currentRequestId = null;
+        if (opts.showError) {
+          setEmotion("sad");
+          say(`嗚…我的腦袋連不上:${message}`, 8000);
+        } else if (bubbleText.value === placeholder) {
+          bubbleText.value = "";
+        }
+        resolve("");
+      },
+      onFallback(_from, to) {
+        prefix = `(雲端連不上,改用${to})\n`;
+      },
+      onTool(label) {
+        sayStreaming(`${prefix + pending}\n🔧(${label}中…)`.trim());
+      },
+    }).then((id) => (currentRequestId = id));
   });
 }
 
@@ -229,8 +235,27 @@ async function onChatSubmit(text: string): Promise<void> {
   chatVisible.value = false;
 
   history.push({ role: "user", content: text });
-  const clean = await streamReply([...history], { persist: true, showError: true });
+  const snapshot = [...history];
+  const clean = await streamReply((h) => chatStream("chat", snapshot, h, true), {
+    showError: true,
+  });
   if (clean) history.push({ role: "assistant", content: clean });
+}
+
+/* ---------- 看截圖(M5:Ctrl+Shift+V / 托盤) ---------- */
+async function seeScreen(): Promise<void> {
+  if (!isTauri) {
+    say("看螢幕要在桌面 App 裡才能用喔。");
+    return;
+  }
+  if (currentRequestId || thinking.value) return; // 忙碌中不重入
+  markActivity();
+  setEmotion("surprised");
+  // 視覺模型不落對話紀錄(圖無法重現);prompt 留空 → Rust 用預設
+  await streamReply((h) => visionChat("", h), {
+    showError: true,
+    thinkingText: "(讓我看看…📷)",
+  });
 }
 
 /* ---------- 主動行為(M4.5) ---------- */
@@ -260,7 +285,7 @@ function canSpeakProactively(): boolean {
 async function proactiveSay(instruction: string): Promise<void> {
   if (!canSpeakProactively()) return;
   markActivity();
-  await streamReply([{ role: "user", content: instruction }], { persist: false });
+  await streamReply((h) => chatStream("chat", [{ role: "user", content: instruction }], h, false));
 }
 
 function startProactiveWatcher(): void {
@@ -301,16 +326,11 @@ async function onReminderDue(content: string): Promise<void> {
 async function proactiveSayReminder(content: string): Promise<boolean> {
   if (thinking.value || currentRequestId || muted.value) return false;
   markActivity();
-  const clean = await streamReply(
-    [
-      {
-        role: "user",
-        content:
-          `(系統:現在時間到了,請你提醒使用者這件事:「${content}」。` +
-          `用你活潑可愛的口吻、簡短地提醒他,直接說話。)`,
-      },
-    ],
-    { persist: false }
+  const instruction =
+    `(系統:現在時間到了,請你提醒使用者這件事:「${content}」。` +
+    `用你活潑可愛的口吻、簡短地提醒他,直接說話。)`;
+  const clean = await streamReply((h) =>
+    chatStream("chat", [{ role: "user", content: instruction }], h, false)
   );
   return clean.length > 0;
 }

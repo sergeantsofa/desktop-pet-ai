@@ -20,6 +20,7 @@ mod llm;
 mod memory;
 mod scheduler;
 mod speech;
+mod vision;
 mod window;
 
 pub fn run() {
@@ -64,6 +65,7 @@ pub fn run() {
             llm::health_check,
             llm::chat_stream,
             llm::cancel_chat,
+            llm::vision_chat,
             speech::speech_status,
             speech::tts_synthesize,
             speech::tts_edge,
