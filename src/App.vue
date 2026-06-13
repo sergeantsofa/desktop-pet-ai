@@ -30,6 +30,7 @@ import {
   pauseSmartPassthrough,
 } from "./passthrough";
 import { loadBehavior } from "./behavior";
+import { checkForUpdate, type UpdateInfo } from "./updater";
 import ChatInput from "./chat/ChatInput.vue";
 import SpeechBubble from "./chat/SpeechBubble.vue";
 import PermissionPrompt from "./chat/PermissionPrompt.vue";
@@ -443,11 +444,35 @@ onMounted(async () => {
 
   markActivity();
   startProactiveWatcher();
+
+  // 自動更新:啟動後靜默檢查,有新版才提示
+  void checkForUpdate().then((info) => {
+    if (info) {
+      update.value = info;
+      say(`欸!我有新版本可以更新喔(v${info.version})~`, 8000);
+    }
+  });
 });
 
 onBeforeUnmount(() => {
   if (proactiveTimer) window.clearInterval(proactiveTimer);
 });
+
+/* ---------- 自動更新 ---------- */
+const update = ref<UpdateInfo | null>(null);
+const updating = ref(false);
+
+async function onUpdateNow(): Promise<void> {
+  if (!update.value) return;
+  updating.value = true;
+  sayStreaming("(下載更新中…裝好我會自己重開)");
+  try {
+    await update.value.install();
+  } catch (err) {
+    updating.value = false;
+    say(`更新失敗了…${err}`, 8000);
+  }
+}
 </script>
 
 <template>
@@ -468,6 +493,16 @@ onBeforeUnmount(() => {
 
     <SpeechBubble v-if="bubbleText" :text="bubbleText" />
     <PermissionPrompt v-if="permission" :request="permission" @respond="onPermissionRespond" />
+
+    <!-- 自動更新提示 -->
+    <div v-if="update && !updating" class="update-bar" @pointerdown.stop>
+      <span>新版本 v{{ update.version }} 可用</span>
+      <div class="update-actions">
+        <button class="update-now" @click="onUpdateNow">更新</button>
+        <button class="update-later" @click="update = null">稍後</button>
+      </div>
+    </div>
+
     <ChatInput v-if="chatVisible" @submit="onChatSubmit" @close="chatVisible = false" />
     <SettingsPanel v-if="settingsVisible" @close="settingsVisible = false" />
   </div>
@@ -478,6 +513,42 @@ onBeforeUnmount(() => {
   position: fixed;
   inset: 0;
   background: transparent;
+}
+.update-bar {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(91, 141, 239, 0.96);
+  color: #fff;
+  padding: 6px 10px 6px 14px;
+  border-radius: 16px;
+  font-size: 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+}
+.update-actions {
+  display: flex;
+  gap: 6px;
+}
+.update-bar button {
+  border: none;
+  border-radius: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.update-now {
+  background: #fff;
+  color: #4a7de0;
+  font-weight: 600;
+}
+.update-later {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
 }
 .live2d-canvas {
   position: absolute;

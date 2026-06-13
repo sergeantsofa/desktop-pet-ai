@@ -1,0 +1,24 @@
+{
+	"_說明": "把這個檔複製成 characters.json,並換成你自己的模型。模型資料夾放在 public/models/<角色名>/ 下。",
+	"active": "你的角色id",
+	"characters": [
+		{
+			"id": "你的角色id",
+			"name": "顯示名稱",
+			"path": "/models/你的角色資料夾/你的模型.model3.json",
+			"scale": 1.0,
+			"idleMinutes": 3,
+			"emotions": {
+				"happy": "表情名稱或 motion:動作群組名",
+				"sad": "流泪",
+				"angry": "生气",
+				"surprised": "惊讶",
+				"shy": "脸红",
+				"sleepy": "Idle"
+			},
+			"fixedParams": {
+				"_說明": "選填:每幀強制固定的參數,用來關掉 VTube 匯出模型多餘的半透明部件,例如 ShouBing:0"
+			}
+		}
+	]
+}

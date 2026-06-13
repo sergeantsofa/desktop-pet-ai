@@ -10,6 +10,7 @@ src-tauri/gen/schemas/
 public/models/*
 !public/models/README.md
 !public/models/active.example.json
+!public/models/characters.example.json
 public/vendor/*
 !public/vendor/README.md
 

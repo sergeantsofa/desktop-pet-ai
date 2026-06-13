@@ -70,6 +70,24 @@ npm run tauri build
 
 > 未放置 Cubism Core 或模型時,App 仍可啟動,會顯示引導畫面。
 
+## 自動更新
+
+App 啟動時會靜默檢查 GitHub Releases,有新版本就由桌寵主動提示、可一鍵下載安裝並自動重啟(Tauri updater,更新包經 Ed25519 簽章驗證)。
+
+### 發布新版(維護者)
+
+1. 一次性設定 GitHub Secrets(在 repo → Settings → Secrets and variables → Actions):
+   - `TAURI_SIGNING_PRIVATE_KEY`:簽章私鑰內容(`~/.tauri/desktop-pet-ai.key` 的內容)
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`:產生金鑰時設定的密碼
+2. 把 `tauri.conf.json` 的 `plugins.updater.endpoints` 內 `__OWNER__/__REPO__` 換成你的 GitHub 帳號/倉庫名。
+3. 改好程式、把 `tauri.conf.json` 與 `package.json` 的 `version` 升版,然後推一個對應 tag:
+   ```bash
+   git tag v0.2.0 && git push origin v0.2.0
+   ```
+4. GitHub Actions(`.github/workflows/release.yml`)會自動編譯、簽章、建立 Release 並產生 `latest.json`。使用者的 App 下次啟動就會收到更新。
+
+> 簽章**私鑰**絕不可進版控(已放在 repo 外的 `~/.tauri/`)。弄丟私鑰或密碼,既有使用者將無法再收到簽章驗證通過的更新。
+
 ### 新增 / 切換角色
 
 把模型資料夾放進 `public/models/<角色名>/`,在 `public/models/characters.json` 的 `characters` 陣列加一筆(`id`、`name`、`path` 指到 `.model3.json`、可選 `scale`/`idleMinutes`/`emotions`),即可在「設定 → 角色外觀」即時切換(選擇記在 localStorage)。`emotions` 把情緒標籤(happy/sad/angry/surprised/shy/sleepy)映射到該模型的 expression 名稱或 `motion:群組名`。
