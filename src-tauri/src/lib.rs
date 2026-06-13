@@ -21,6 +21,7 @@ mod memory;
 mod scheduler;
 mod speech;
 mod vision;
+mod watcher;
 mod window;
 
 pub fn run() {
@@ -53,6 +54,23 @@ pub fn run() {
             if memory_ready {
                 scheduler::start(app.handle().clone());
             }
+            // 截圖資料夾監看(依設定;啟動時若已開啟就掛上)
+            app.manage(watcher::WatchState(Mutex::new(None)));
+            {
+                let s = app.state::<llm::SettingsState>();
+                let settings = s.0.lock().unwrap().clone();
+                if settings.watch_screenshots {
+                    let watch = app.state::<watcher::WatchState>();
+                    if let Err(e) = watcher::apply(
+                        app.handle(),
+                        &watch,
+                        true,
+                        &settings.screenshot_dir,
+                    ) {
+                        eprintln!("[watcher] 啟動截圖監看失敗: {e}");
+                    }
+                }
+            }
             window::setup(app)?;
             Ok(())
         })
@@ -66,6 +84,7 @@ pub fn run() {
             llm::chat_stream,
             llm::cancel_chat,
             llm::vision_chat,
+            llm::vision_chat_file,
             speech::speech_status,
             speech::tts_synthesize,
             speech::tts_edge,

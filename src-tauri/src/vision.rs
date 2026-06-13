@@ -34,7 +34,27 @@ pub fn capture_screen_base64(app: &AppHandle) -> Result<String, String> {
         }
     }
 
-    let rgba = result?;
+    rgba_to_base64(result?)
+}
+
+/// 讀取指定圖片檔,回傳 PNG base64(縮到寬度上限)。
+/// 截圖剛產生時可能還在寫入,讀失敗會短暫重試。
+pub fn read_image_base64(path: &str) -> Result<String, String> {
+    let mut last_err = String::new();
+    for attempt in 0..5 {
+        if attempt > 0 {
+            sleep(Duration::from_millis(300));
+        }
+        match image::open(path) {
+            Ok(img) => return rgba_to_base64(img.to_rgba8()),
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    Err(format!("讀取圖片失敗:{last_err}"))
+}
+
+/// RgbaImage → 縮圖 → PNG → base64
+fn rgba_to_base64(rgba: image::RgbaImage) -> Result<String, String> {
     let (w, h) = (rgba.width(), rgba.height());
     let resized = if w > MAX_WIDTH {
         let nh = (h as f32 * MAX_WIDTH as f32 / w as f32).round() as u32;

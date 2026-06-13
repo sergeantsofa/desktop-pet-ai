@@ -32,6 +32,8 @@ export interface Settings {
   persona: Persona;
   context_turns: number;
   agent_enabled: boolean;
+  watch_screenshots: boolean;
+  screenshot_dir: string;
 }
 
 export interface ChatMessage {
@@ -145,6 +147,25 @@ export async function visionChat(prompt: string, handlers: StreamHandlers): Prom
   await ensureListeners();
   active.set(requestId, handlers);
   invoke("vision_chat", { requestId, prompt }).catch((err) => {
+    if (active.has(requestId)) {
+      handlers.onError(String(err));
+      active.delete(requestId);
+    }
+  });
+  return requestId;
+}
+
+/** 看指定圖片檔(M5.5:截圖資料夾監看到新圖時)。結果走同一組 chat-* 事件。 */
+export async function visionChatFile(
+  path: string,
+  prompt: string,
+  handlers: StreamHandlers
+): Promise<string> {
+  const requestId = crypto.randomUUID();
+  if (!isTauri) return requestId;
+  await ensureListeners();
+  active.set(requestId, handlers);
+  invoke("vision_chat_file", { requestId, path, prompt }).catch((err) => {
     if (active.has(requestId)) {
       handlers.onError(String(err));
       active.delete(requestId);

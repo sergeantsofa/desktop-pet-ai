@@ -58,6 +58,10 @@ pub struct Settings {
     pub context_turns: usize,
     /// M3:允許模型使用工具(查時間/剪貼簿/開網頁/系統狀態)
     pub agent_enabled: bool,
+    /// M5.5:監看截圖資料夾,有新圖就自動看
+    pub watch_screenshots: bool,
+    /// 監看的資料夾(空字串 = 預設 Pictures\Screenshots)
+    pub screenshot_dir: String,
 }
 
 impl Default for Settings {
@@ -105,6 +109,8 @@ impl Default for Settings {
             },
             context_turns: 10,
             agent_enabled: true,
+            watch_screenshots: false,
+            screenshot_dir: String::new(),
         }
     }
 }
@@ -146,10 +152,18 @@ pub fn get_settings(state: State<SettingsState>) -> Settings {
 pub fn save_settings(
     app: AppHandle,
     state: State<SettingsState>,
+    watch: State<crate::watcher::WatchState>,
     settings: Settings,
 ) -> Result<(), String> {
     *state.0.lock().unwrap() = settings.clone();
-    write_settings(&app, &settings)
+    write_settings(&app, &settings)?;
+    // 截圖監看設定可能變了 → 重新套用(失敗只記錄,不擋存檔)
+    if let Err(e) =
+        crate::watcher::apply(&app, &watch, settings.watch_screenshots, &settings.screenshot_dir)
+    {
+        eprintln!("[watcher] 套用截圖監看失敗: {e}");
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -242,5 +256,28 @@ pub async fn vision_chat(
     })
     .await
     .map_err(|e| e.to_string())??;
+    provider::run_vision(app, settings, request_id, image_b64, prompt).await
+}
+
+/// 看指定圖片檔(M5.5:截圖資料夾監看偵測到新圖時呼叫)。
+#[tauri::command]
+pub async fn vision_chat_file(
+    app: AppHandle,
+    state: State<'_, SettingsState>,
+    cancel: State<'_, CancelState>,
+    request_id: String,
+    path: String,
+    prompt: String,
+) -> Result<(), String> {
+    let settings = state.0.lock().unwrap().clone();
+    cancel.0.lock().unwrap().remove(&request_id);
+    let prompt = if prompt.trim().is_empty() {
+        "這是使用者剛剛的截圖,簡短說說你看到什麼、給點評論或吐槽。".to_string()
+    } else {
+        prompt
+    };
+    let image_b64 = tauri::async_runtime::spawn_blocking(move || crate::vision::read_image_base64(&path))
+        .await
+        .map_err(|e| e.to_string())??;
     provider::run_vision(app, settings, request_id, image_b64, prompt).await
 }

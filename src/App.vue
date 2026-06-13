@@ -11,6 +11,7 @@ import {
 import {
   chatStream,
   visionChat,
+  visionChatFile,
   cancelChat,
   healthCheck,
   loadRecentHistory,
@@ -90,6 +91,10 @@ async function setupTauriEvents(): Promise<void> {
   });
   // M5:看截圖(Ctrl+Shift+V / 托盤)
   await listen("see-screen", () => void seeScreen());
+  // M5.5:截圖資料夾出現新圖 → 自動讀圖評論
+  await listen<{ path: string }>("screenshot-added", (e) => {
+    void onNewScreenshot(e.payload.path);
+  });
   // 智慧穿透:游標不在角色/UI 上時讓滑鼠穿透到下層(托盤開關)
   await listen<boolean>("smart-passthrough", (e) => {
     if (e.payload) {
@@ -255,6 +260,17 @@ async function seeScreen(): Promise<void> {
   await streamReply((h) => visionChat("", h), {
     showError: true,
     thinkingText: "(讓我看看…📷)",
+  });
+}
+
+/** 截圖資料夾出現新圖(自動觸發);她忙碌時就略過這張,不打斷。 */
+async function onNewScreenshot(path: string): Promise<void> {
+  if (!isTauri) return;
+  if (currentRequestId || thinking.value || chatVisible.value || recording.value) return;
+  markActivity();
+  setEmotion("surprised");
+  await streamReply((h) => visionChatFile(path, "", h), {
+    thinkingText: "(咦,你截圖了?讓我看看…📷)",
   });
 }
 

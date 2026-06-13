@@ -92,6 +92,8 @@ onMounted(async () => {
       persona: { name: "小桌寵", system_prompt: "" },
       context_turns: 10,
       agent_enabled: true,
+      watch_screenshots: false,
+      screenshot_dir: "",
     };
     ensureRoutes(settings.value);
     return;
@@ -257,6 +259,21 @@ async function onClearHistory(): Promise<void> {
         </label>
         <p class="hint">
           跟她說「○分鐘後提醒我…」她會到時主動跳出來提醒(此功能不受開關影響)。
+        </p>
+        <label class="check">
+          <input v-model="settings.watch_screenshots" type="checkbox" />
+          監看截圖資料夾,一截圖就自動幫你看圖評論
+        </label>
+        <label v-if="settings.watch_screenshots">
+          截圖資料夾(留空 = 預設 Pictures\Screenshots)
+          <input
+            v-model="settings.screenshot_dir"
+            type="text"
+            placeholder="C:\Users\你\Pictures\Screenshots"
+          />
+        </label>
+        <p v-if="settings.watch_screenshots" class="hint">
+          需要視覺模型(看圖路由);儲存後生效。用 Win+PrtScn 截圖會直接存到此資料夾。
         </p>
       </section>
 
