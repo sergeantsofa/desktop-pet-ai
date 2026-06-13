@@ -50,7 +50,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/__OWNER__/__REPO__/releases/latest/download/latest.json"
+        "https://github.com/sergeantsofa/desktop-pet-ai/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE5OEYxNjAxOEVCN0EwMjAKUldRZ29MZU9BUmFQcVRrMXlMTDlQekk2eHJCcGVqWm04WEZKUmlvQjFOT2R4MEEzbFU1TktsYVgK",
       "windows": {
