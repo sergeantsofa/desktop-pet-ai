@@ -472,6 +472,35 @@ async function openDataFolder(): Promise<void> {
   }
 }
 
+/* ---------- 一鍵設定(首次啟動下載範例角色 + Core) ---------- */
+const bootstrapping = ref(false);
+const bootstrapMsg = ref("");
+
+async function oneClickSetup(): Promise<void> {
+  if (!isTauri || bootstrapping.value) return;
+  bootstrapping.value = true;
+  bootstrapMsg.value = "準備中…";
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { listen } = await import("@tauri-apps/api/event");
+    const un = await listen<{ done: number; total: number; label: string }>(
+      "bootstrap-progress",
+      (e) => {
+        const { done, total, label } = e.payload;
+        bootstrapMsg.value = `${label}(${done}/${total})`;
+      }
+    );
+    await invoke("bootstrap_assets");
+    un();
+    bootstrapMsg.value = "完成!正在載入…";
+    // 重載前端 → 重新載入(這次外部已有 Core + 模型)
+    window.location.reload();
+  } catch (err) {
+    bootstrapping.value = false;
+    bootstrapMsg.value = `下載失敗:${err}`;
+  }
+}
+
 async function onUpdateNow(): Promise<void> {
   if (!update.value) return;
   updating.value = true;
@@ -497,11 +526,19 @@ async function onUpdateNow(): Promise<void> {
     <!-- 模型尚未就緒時的引導占位角色 -->
     <div v-if="loadError" class="placeholder">
       <div class="placeholder-face">(。・ω・。)</div>
-      <p class="placeholder-text">{{ loadError }}</p>
-      <button v-if="isTauri" class="folder-btn" @pointerdown.stop @click="openDataFolder">
-        📁 開啟資料夾(放模型 / Core)
-      </button>
-      <p class="placeholder-hint">放好檔案後重新啟動即可。詳見專案 README。(沒有模型也能聊天喔)</p>
+      <template v-if="isTauri">
+        <p class="placeholder-text">還沒有角色~ 點下面讓我幫你下載一個範例角色就能開始!</p>
+        <button class="setup-btn" :disabled="bootstrapping" @pointerdown.stop @click="oneClickSetup">
+          {{ bootstrapping ? bootstrapMsg : "✨ 一鍵下載範例角色(約 5MB)" }}
+        </button>
+        <button class="folder-btn" @pointerdown.stop @click="openDataFolder">
+          📁 我要放自己的模型(開啟資料夾)
+        </button>
+        <p class="placeholder-hint">想換自己的 Live2D 模型?詳見專案 README。</p>
+      </template>
+      <template v-else>
+        <p class="placeholder-text">{{ loadError }}</p>
+      </template>
     </div>
 
     <SpeechBubble v-if="bubbleText" :text="bubbleText" />
@@ -603,16 +640,35 @@ async function onUpdateNow(): Promise<void> {
   color: #f5f5f5;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
-.folder-btn {
+.setup-btn {
   border: none;
   background: #5b8def;
   color: #fff;
-  padding: 8px 16px;
-  border-radius: 16px;
+  padding: 10px 20px;
+  border-radius: 18px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(91, 141, 239, 0.5);
+}
+.setup-btn:hover {
+  background: #4a7de0;
+}
+.setup-btn:disabled {
+  background: #9bb5e8;
+  cursor: default;
+}
+.folder-btn {
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: transparent;
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 14px;
+  cursor: pointer;
+  font-size: 12px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 .folder-btn:hover {
-  background: #4a7de0;
+  background: rgba(255, 255, 255, 0.15);
 }
 </style>

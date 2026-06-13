@@ -16,6 +16,7 @@ use std::{
 use tauri::Manager;
 
 mod agent;
+mod bootstrap;
 mod fileserver;
 mod llm;
 mod memory;
@@ -111,6 +112,8 @@ pub fn run() {
             memory::clear_history,
             window::open_data_folder,
             fileserver::resource_port,
+            bootstrap::assets_ready,
+            bootstrap::bootstrap_assets,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
