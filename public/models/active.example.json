@@ -1,0 +1,14 @@
+{
+  "path": "/models/Hiyori/Hiyori.model3.json",
+  "scale": 1.0,
+  "idleMinutes": 3,
+  "emotions": {
+    "happy": "motion:TapBody",
+    "sad": "motion:Idle",
+    "angry": "motion:Flick",
+    "surprised": "motion:FlickDown",
+    "shy": "motion:Tap",
+    "sleepy": "motion:Idle",
+    "neutral": "motion:Idle"
+  }
+}

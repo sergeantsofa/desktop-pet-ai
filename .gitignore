@@ -1,0 +1,24 @@
+# 前端
+node_modules/
+dist/
+
+# Rust
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Live2D 模型與 Cubism Core(授權考量,一律不入版控)
+public/models/*
+!public/models/README.md
+!public/models/active.example.json
+public/vendor/*
+!public/vendor/README.md
+
+# 角色模型原始解壓夾(付費/限定素材,授權考量不入庫)
+IceGirl_Live2d/
+
+# Claude Code 本地狀態(個人設定、排程鎖)
+.claude/
+
+# 其他
+*.log
+.DS_Store
