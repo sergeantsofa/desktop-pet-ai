@@ -241,8 +241,9 @@ fn run_whisper(exe: &Path, model: &Path, wav: &[u8]) -> Result<String, String> {
         .arg(model)
         .arg("-f")
         .arg(&input)
-        // -nt 不輸出時間戳、-np 不輸出進度;prompt 引導輸出繁體
-        .args(["-nt", "-np", "-l", "zh", "--prompt", "以下是繁體中文的內容。"])
+        // -nt 不輸出時間戳、-np 不輸出進度、-sns 抑制非語音 token(減少靜音時的幻覺)。
+        // 不給 --prompt:prompt 反而容易讓模型在靜音時「接龍」出字幕幻覺。
+        .args(["-nt", "-np", "-sns", "-l", "zh"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     hide_console(&mut cmd);
@@ -259,5 +260,23 @@ fn run_whisper(exe: &Path, model: &Path, wav: &[u8]) -> Result<String, String> {
         .filter(|l| !l.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
-    Ok(text)
+    Ok(if is_hallucination(&text) { String::new() } else { text })
+}
+
+/// Whisper 在靜音/雜訊時常吐出訓練資料(YouTube 字幕)殘留的幻覺片語。
+/// 命中就視為「沒聽到」,回空字串讓前端提示再說一次。
+fn is_hallucination(text: &str) -> bool {
+    let t: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if t.is_empty() {
+        return true;
+    }
+    const PHRASES: &[&str] = &[
+        "字幕", "訂閱", "订阅", "點贊", "点赞", "按讚", "點讚", "謝謝觀看", "谢谢观看",
+        "謝謝大家", "谢谢大家", "請不吝", "请不吝", "明鏡", "明镜", "點點欄目", "点点栏目",
+        "獨播劇場", "独播剧场", "轉發", "转发", "打賞", "打赏", "下次再見", "下次再见",
+        "關注", "关注", "Amara", "字幕志願", "字幕志愿", "MING PAO",
+    ];
+    // 短句(<= 12 字)且含任一幻覺片語 → 視為幻覺;這類片語幾乎不會出現在對桌寵的日常口語
+    let hit = PHRASES.iter().any(|p| t.contains(p));
+    hit && t.chars().count() <= 12
 }
