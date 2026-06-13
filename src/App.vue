@@ -462,6 +462,16 @@ onBeforeUnmount(() => {
 const update = ref<UpdateInfo | null>(null);
 const updating = ref(false);
 
+async function openDataFolder(): Promise<void> {
+  if (!isTauri) return;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("open_data_folder");
+  } catch {
+    /* 開資料夾失敗忽略 */
+  }
+}
+
 async function onUpdateNow(): Promise<void> {
   if (!update.value) return;
   updating.value = true;
@@ -488,6 +498,9 @@ async function onUpdateNow(): Promise<void> {
     <div v-if="loadError" class="placeholder">
       <div class="placeholder-face">(。・ω・。)</div>
       <p class="placeholder-text">{{ loadError }}</p>
+      <button v-if="isTauri" class="folder-btn" @pointerdown.stop @click="openDataFolder">
+        📁 開啟資料夾(放模型 / Core)
+      </button>
       <p class="placeholder-hint">放好檔案後重新啟動即可。詳見專案 README。(沒有模型也能聊天喔)</p>
     </div>
 
@@ -589,5 +602,17 @@ async function onUpdateNow(): Promise<void> {
   font-size: 11px;
   color: #f5f5f5;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.folder-btn {
+  border: none;
+  background: #5b8def;
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 16px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.folder-btn:hover {
+  background: #4a7de0;
 }
 </style>

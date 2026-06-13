@@ -1,10 +1,13 @@
 /**
  * 多角色管理(角色清單 + 當前選擇)。
- * 角色清單放 public/models/characters.json;當前選擇記在 localStorage,
- * 沒選過時用 manifest 的 active 欄位(再退回清單第一個)。
- * 找不到 characters.json 時退回舊的單一 active.json(向後相容)。
+ * 來源優先序:
+ *   1. 外部 %APPDATA%\com.desktoppet.ai\models\characters.json(發行版使用者放這;path 相對 models 資料夾)
+ *   2. 打包 /models/characters.json(開發者放 public/)
+ *   3. 舊的單一 active.json(向後相容)
+ * 當前選擇記在 localStorage,沒選過時用 manifest 的 active 欄位(再退回第一個)。
  */
 import type { ActiveModelConfig } from "./stage";
+import { resourceBase } from "../resources";
 
 export interface Character extends ActiveModelConfig {
   id: string;
@@ -21,9 +24,34 @@ const SELECTED_KEY = "selected-character";
 let cache: Character[] | null = null;
 let manifestActive = "";
 
-/** 載入角色清單(快取);失敗時退回 active.json 當單一角色。 */
+/** 試讀外部資源伺服器的角色清單;path 轉成 http URL。沒有回 null。 */
+async function loadExternalCharacters(): Promise<Character[] | null> {
+  const base = await resourceBase();
+  if (!base) return null;
+  try {
+    const res = await fetch(`${base}/models/characters.json`);
+    if (!res.ok) return null;
+    const m = (await res.json()) as Manifest;
+    if (!Array.isArray(m.characters) || m.characters.length === 0) return null;
+    manifestActive = m.active ?? m.characters[0].id;
+    // path 視為相對 models 資料夾 → 指向本機伺服器
+    for (const c of m.characters) {
+      c.path = `${base}/models/${c.path.replace(/^[/\\]+/, "")}`;
+    }
+    return m.characters;
+  } catch {
+    return null;
+  }
+}
+
+/** 載入角色清單(快取):外部 appdata 優先,再退回打包 /models,最後 active.json。 */
 export async function loadCharacters(): Promise<Character[]> {
   if (cache) return cache;
+  const ext = await loadExternalCharacters();
+  if (ext) {
+    cache = ext;
+    return cache;
+  }
   const res = await fetch("/models/characters.json").catch(() => null);
   if (res && res.ok) {
     const m = (await res.json()) as Manifest;

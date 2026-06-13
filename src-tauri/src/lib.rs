@@ -16,6 +16,7 @@ use std::{
 use tauri::Manager;
 
 mod agent;
+mod fileserver;
 mod llm;
 mod memory;
 mod scheduler;
@@ -36,6 +37,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             app.manage(llm::SettingsState(Mutex::new(llm::load_settings(
                 app.handle(),
@@ -57,6 +59,17 @@ pub fn run() {
             if memory_ready {
                 scheduler::start(app.handle().clone());
             }
+            // 本機資源伺服器:serve %APPDATA%\com.desktoppet.ai\(模型/Core 外部載入)
+            let res_port = match app.path().app_data_dir() {
+                Ok(dir) => {
+                    let _ = std::fs::create_dir_all(dir.join("models"));
+                    let _ = std::fs::create_dir_all(dir.join("vendor"));
+                    fileserver::start(dir).unwrap_or(0)
+                }
+                Err(_) => 0,
+            };
+            app.manage(fileserver::ResourcePort(res_port));
+
             // 截圖資料夾監看(依設定;啟動時若已開啟就掛上)
             app.manage(watcher::WatchState(Mutex::new(None)));
             {
@@ -96,6 +109,8 @@ pub fn run() {
             memory::load_recent_history,
             memory::clear_memories,
             memory::clear_history,
+            window::open_data_folder,
+            fileserver::resource_port,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

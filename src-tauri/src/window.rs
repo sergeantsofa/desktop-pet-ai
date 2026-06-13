@@ -13,6 +13,19 @@ use tauri_plugin_global_shortcut::{
 };
 
 const MAIN_WINDOW: &str = "main";
+
+/// 開啟(並建立)外部資源資料夾,讓使用者放模型 / Cubism Core。回傳路徑。
+#[tauri::command]
+pub fn open_data_folder(app: AppHandle) -> Result<String, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let _ = fs::create_dir_all(dir.join("models"));
+    let _ = fs::create_dir_all(dir.join("vendor"));
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("explorer").arg(&dir).spawn();
+    }
+    Ok(dir.display().to_string())
+}
 const POS_FILE: &str = "window-position.json";
 
 /// 全域快捷鍵:Ctrl+Shift+A 喚出/收合對話輸入框

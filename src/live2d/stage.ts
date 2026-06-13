@@ -110,7 +110,7 @@ export async function loadModel(cfg: ActiveModelConfig, cb?: StageCallbacks): Pr
   if (!app) throw new Error("stage 尚未初始化");
   if (!window.Live2DCubismCore) {
     throw new Error(
-      "找不到 Cubism Core。請從 live2d.com 下載 Web SDK,將 live2dcubismcore.min.js 放入 public/vendor/。"
+      "找不到 Cubism Core。請從 live2d.com 下載 Web SDK,把 live2dcubismcore.min.js 放到「資料夾」按鈕開啟的 vendor 資料夾(開發者可放 public/vendor/)。"
     );
   }
 
@@ -142,7 +142,7 @@ export async function loadActiveModel(cb: StageCallbacks = {}): Promise<void> {
   const character = await getActiveCharacter();
   if (!character) {
     throw new Error(
-      "找不到模型設定。請將 Live2D 模型放入 public/models/<角色名>/,並建立 public/models/characters.json。"
+      "找不到模型。請把 Live2D 模型放到「資料夾」按鈕開啟的 models 資料夾,並建立 characters.json(可參考 characters.example.json)。開發者也可放 public/models/。"
     );
   }
   await loadModel(character, cb);
