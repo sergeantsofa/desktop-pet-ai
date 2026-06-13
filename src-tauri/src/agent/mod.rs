@@ -22,8 +22,19 @@ use tokio::sync::oneshot;
 /// 等待使用者回應的權限請求(callId → 回填通道)
 pub struct PermissionState(pub Mutex<HashMap<String, oneshot::Sender<bool>>>);
 
-/// OpenAI tools 格式的工具規格(隨對話請求送出)
-pub fn tool_specs() -> Value {
+/// OpenAI tools 格式的工具規格(隨對話請求送出)。
+/// self_dev=true 時額外提供「讀/改自己原始碼」的工具(層次二)。
+pub fn tool_specs(self_dev: bool) -> Value {
+    let mut specs = base_tool_specs();
+    if self_dev {
+        if let (Some(arr), Value::Array(dev)) = (specs.as_array_mut(), self_dev_tool_specs()) {
+            arr.extend(dev);
+        }
+    }
+    specs
+}
+
+fn base_tool_specs() -> Value {
     json!([
         {
             "type": "function",
@@ -146,6 +157,66 @@ pub fn tool_specs() -> Value {
     ])
 }
 
+/// 層次二:自我修改工具(僅在 self_dev_enabled 時提供)
+fn self_dev_tool_specs() -> Value {
+    json!([
+        {
+            "type": "function",
+            "function": {
+                "name": "dev_list_dir",
+                "description": "列出你自己專案某資料夾下的檔案(看自己的程式碼結構)。path 相對於專案根。",
+                "parameters": {
+                    "type": "object",
+                    "properties": { "path": { "type": "string", "description": "相對路徑,例如 src 或 src-tauri/src" } }
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "dev_read_file",
+                "description": "讀取你自己專案的某個原始碼檔(改之前先讀)。",
+                "parameters": {
+                    "type": "object",
+                    "properties": { "path": { "type": "string", "description": "相對路徑,例如 src/App.vue" } },
+                    "required": ["path"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "dev_write_file",
+                "description": "改寫你自己專案的某個檔(整個檔覆寫)。會先請使用者同意,並自動建立 git 還原點。改完務必呼叫 dev_run_check 驗證。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "相對路徑" },
+                        "content": { "type": "string", "description": "檔案的完整新內容" }
+                    },
+                    "required": ["path", "content"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "dev_run_check",
+                "description": "跑型別檢查驗證你剛剛的修改有沒有壞掉。改完一定要驗。",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "dev_revert",
+                "description": "把專案還原到上一個 git 還原點(改壞時救命用)。會先請使用者同意。",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        }
+    ])
+}
+
 /// 工具的中文顯示名(泡泡「(○○中…)」與權限對話框用)
 pub fn tool_label(name: &str) -> &'static str {
     match name {
@@ -159,6 +230,11 @@ pub fn tool_label(name: &str) -> &'static str {
         "set_reminder" => "設提醒",
         "list_reminders" => "看提醒",
         "cancel_reminder" => "取消提醒",
+        "dev_list_dir" => "看程式碼結構",
+        "dev_read_file" => "讀自己的碼",
+        "dev_write_file" => "改自己的碼",
+        "dev_run_check" => "驗證修改",
+        "dev_revert" => "還原修改",
         _ => "使用工具",
     }
 }
@@ -260,7 +336,50 @@ pub async fn execute(
                 Err(e) => format!("取消提醒失敗:{e}"),
             }
         }
+        // ---------- 層次二:自我修改 ----------
+        "dev_list_dir" | "dev_read_file" | "dev_write_file" | "dev_run_check" | "dev_revert" => {
+            return run_self_dev(app, request_id, name, args).await;
+        }
         other => format!("錯誤:沒有叫做 {other} 的工具。"),
+    }
+}
+
+/// 自我修改工具的執行(讀/列自動;寫/還原要使用者同意 + git 快照)
+async fn run_self_dev(app: &AppHandle, request_id: &str, name: &str, args: &Value) -> String {
+    use crate::llm::SettingsState;
+    let (enabled, root) = {
+        let s = app.state::<SettingsState>();
+        let g = s.0.lock().unwrap();
+        (g.self_dev_enabled, g.self_dev_root.clone())
+    };
+    if !enabled {
+        return "自我修改功能沒有開啟(設定 → 自我修改)。".into();
+    }
+    let path = args["path"].as_str().unwrap_or("").to_string();
+
+    match name {
+        "dev_list_dir" => crate::selfdev::list_dir(&root, &path).unwrap_or_else(|e| format!("錯誤:{e}")),
+        "dev_read_file" => crate::selfdev::read_file(&root, &path).unwrap_or_else(|e| format!("錯誤:{e}")),
+        "dev_run_check" => crate::selfdev::run_check(&root).unwrap_or_else(|e| e),
+        "dev_write_file" => {
+            let content = args["content"].as_str().unwrap_or("");
+            if path.is_empty() || content.is_empty() {
+                return "錯誤:缺少 path 或 content。".into();
+            }
+            if !request_permission(app, request_id, name, &format!("改寫檔案:{path}")).await {
+                return "使用者拒絕了這次修改。".into();
+            }
+            // 寫前自動快照,壞了可 dev_revert 救回
+            let _ = crate::selfdev::git_checkpoint(&root, &path);
+            crate::selfdev::write_file(&root, &path, content).unwrap_or_else(|e| format!("錯誤:{e}"))
+        }
+        "dev_revert" => {
+            if !request_permission(app, request_id, name, "把專案還原到上一個快照").await {
+                return "使用者拒絕了這次還原。".into();
+            }
+            crate::selfdev::git_revert(&root).unwrap_or_else(|e| format!("錯誤:{e}"))
+        }
+        _ => "錯誤:未知的自我修改工具。".into(),
     }
 }
 

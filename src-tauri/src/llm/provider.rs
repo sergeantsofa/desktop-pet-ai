@@ -151,7 +151,7 @@ pub async fn run_vision(
     ];
 
     let mut started = false;
-    let outcome = stream_once(&app, &provider, &route.model, &request_id, &convo, false, &mut started).await;
+    let outcome = stream_once(&app, &provider, &route.model, &request_id, &convo, None, &mut started).await;
     match outcome {
         Ok(StreamOutcome::Done(full)) => {
             emit_done(&app, &request_id, &full, false);
@@ -211,9 +211,13 @@ async fn run_agent_loop(
     persist: bool,
     started: &mut bool,
 ) -> Result<(), String> {
-    let tools_enabled = settings.agent_enabled;
+    let tools = if settings.agent_enabled {
+        Some(crate::agent::tool_specs(settings.self_dev_enabled))
+    } else {
+        None
+    };
     for _round in 0..MAX_TOOL_ROUNDS {
-        match stream_once(app, provider, model, request_id, &convo, tools_enabled, started).await? {
+        match stream_once(app, provider, model, request_id, &convo, tools.as_ref(), started).await? {
             StreamOutcome::Done(full) => {
                 emit_done(app, request_id, &full, persist);
                 return Ok(());
@@ -270,7 +274,7 @@ async fn stream_once(
     model: &str,
     request_id: &str,
     convo: &[Value],
-    tools_enabled: bool,
+    tools: Option<&Value>,
     started: &mut bool,
 ) -> Result<StreamOutcome, String> {
     let client = reqwest::Client::builder()
@@ -284,8 +288,8 @@ async fn stream_once(
         "messages": convo,
         "stream": true,
     });
-    if tools_enabled {
-        body["tools"] = crate::agent::tool_specs();
+    if let Some(t) = tools {
+        body["tools"] = t.clone();
     }
     // DeepSeek V4 預設開思考模式(回應前內部推理很久,且思考+工具要回傳
     // reasoning_content 才不會 400)。桌寵要即時感,固定關閉。

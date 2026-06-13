@@ -34,6 +34,8 @@ export interface Settings {
   agent_enabled: boolean;
   watch_screenshots: boolean;
   screenshot_dir: string;
+  self_dev_enabled: boolean;
+  self_dev_root: string;
 }
 
 export interface ChatMessage {

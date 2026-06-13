@@ -19,6 +19,7 @@ mod agent;
 mod llm;
 mod memory;
 mod scheduler;
+mod selfdev;
 mod speech;
 mod vision;
 mod watcher;

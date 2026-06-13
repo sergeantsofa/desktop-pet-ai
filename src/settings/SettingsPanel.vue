@@ -94,6 +94,8 @@ onMounted(async () => {
       agent_enabled: true,
       watch_screenshots: false,
       screenshot_dir: "",
+      self_dev_enabled: false,
+      self_dev_root: "",
     };
     ensureRoutes(settings.value);
     return;
@@ -244,6 +246,26 @@ async function onClearHistory(): Promise<void> {
         </label>
         <p class="hint">
           唯讀工具自動執行;開網頁、雲端讀剪貼簿會先跳出確認卡片問你。
+        </p>
+      </section>
+
+      <section>
+        <h3>自我修改(進階・高風險)</h3>
+        <label class="check">
+          <input v-model="settings.self_dev_enabled" type="checkbox" />
+          允許她讀/改自己的原始碼
+        </label>
+        <label v-if="settings.self_dev_enabled">
+          專案根目錄
+          <input
+            v-model="settings.self_dev_root"
+            type="text"
+            placeholder="D:\desktop\desktop-pet-ai"
+          />
+        </label>
+        <p v-if="settings.self_dev_enabled" class="hint warn">
+          ⚠️ 每次改檔都會先跳確認卡片、並自動建立 git 還原點;改壞了叫她「還原修改」或自己
+          <code>git reset --hard</code>。需要 Agent 工具開啟、且專案是 git 倉庫。改完她會用型別檢查驗證。
         </p>
       </section>
 
@@ -439,6 +461,14 @@ input[type="range"] {
   margin: 0 0 6px;
   color: #888;
   font-size: 12px;
+}
+.hint.warn {
+  color: #c66;
+}
+.hint code {
+  background: #f0f0f0;
+  padding: 0 4px;
+  border-radius: 4px;
 }
 .panel-footer {
   display: flex;

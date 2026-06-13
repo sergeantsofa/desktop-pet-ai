@@ -62,6 +62,10 @@ pub struct Settings {
     pub watch_screenshots: bool,
     /// 監看的資料夾(空字串 = 預設 Pictures\Screenshots)
     pub screenshot_dir: String,
+    /// 層次二:允許她讀/改自己的原始碼(高風險,預設關)
+    pub self_dev_enabled: bool,
+    /// 自我修改的專案根目錄(空字串 = 停用)
+    pub self_dev_root: String,
 }
 
 impl Default for Settings {
@@ -111,6 +115,8 @@ impl Default for Settings {
             agent_enabled: true,
             watch_screenshots: false,
             screenshot_dir: String::new(),
+            self_dev_enabled: false,
+            self_dev_root: String::new(),
         }
     }
 }
