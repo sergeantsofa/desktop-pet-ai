@@ -41,9 +41,17 @@ export async function ensureCubismCore(): Promise<boolean> {
 function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const el = document.createElement("script");
+    // 逾時保險:某些環境(防火牆擋本機 server)連線不回應,避免永遠 pending
+    const timer = window.setTimeout(() => reject(new Error("script 載入逾時")), 8000);
     el.src = src;
-    el.onload = () => resolve();
-    el.onerror = () => reject(new Error("script 載入失敗"));
+    el.onload = () => {
+      window.clearTimeout(timer);
+      resolve();
+    };
+    el.onerror = () => {
+      window.clearTimeout(timer);
+      reject(new Error("script 載入失敗"));
+    };
     document.head.appendChild(el);
   });
 }

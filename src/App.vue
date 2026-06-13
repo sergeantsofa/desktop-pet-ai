@@ -31,6 +31,7 @@ import {
 } from "./passthrough";
 import { loadBehavior } from "./behavior";
 import { checkForUpdate, type UpdateInfo } from "./updater";
+import { ensureCubismCore } from "./resources";
 import ChatInput from "./chat/ChatInput.vue";
 import SpeechBubble from "./chat/SpeechBubble.vue";
 import PermissionPrompt from "./chat/PermissionPrompt.vue";
@@ -415,6 +416,14 @@ onMounted(async () => {
   history.push(...(await loadRecentHistory()));
   const canvas = canvasRef.value!;
   initStage(canvas);
+
+  // 確保 Cubism Core 已載入(背景外部 vendor);失敗/逾時不擋 UI,
+  // loadActiveModel 會因缺 Core 而顯示引導畫面(含一鍵下載)。
+  try {
+    await ensureCubismCore();
+  } catch {
+    /* 載不到就讓 loadActiveModel 走引導流程 */
+  }
 
   let greeted = false;
   try {
