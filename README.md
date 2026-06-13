@@ -2,6 +2,88 @@
 
 Windows 桌面常駐的 Live2D 虛擬人助理,全本地運算優先。本倉庫目前完成 **M0 骨架 + M1 對話核心 + M2 語音(TTS/STT/對嘴)+ M3 前半(Agent 工具呼叫)+ M4 長期記憶**。
 
+> 你是**想直接使用**的一般使用者?看下面〈🐾 使用者安裝指南〉。
+> 你是**想改程式碼**的開發者?跳到〈環境需求〉與〈安裝與啟動(開發者)〉。
+> 卡關時,可以把這份 README 連同你遇到的畫面/錯誤訊息一起貼給 ChatGPT / Claude,請它一步步帶你做。
+
+---
+
+## 🐾 使用者安裝指南(下載安裝版)
+
+> 為什麼要「自備素材」:Live2D 的 **Cubism Core** 與 **模型** 受各自授權保護,**不能**隨安裝包散布,所以需要你自己放進去。下面每一步都有連結與確切路徑,照做即可。
+
+### 步驟 0:系統需求
+- **Windows 10 / 11**(64 位元)。
+- 安裝時若缺 **WebView2**,安裝程式會自動下載安裝(需網路);Windows 11 已內建。
+
+### 步驟 1:下載安裝
+1. 到 **[Releases 頁面](https://github.com/sergeantsofa/desktop-pet-ai/releases/latest)** 下載 `DesktopPetAI_x.x.x_x64-setup.exe`。
+2. 雙擊安裝、開啟。第一次會看到一個 `(。・ω・。)` 引導畫面(因為還沒有角色),這是正常的。
+
+### 步驟 2:打開放素材的資料夾
+- 在引導畫面點 **「📁 開啟資料夾」** 按鈕。它會開啟並建立:
+  ```
+  %APPDATA%\com.desktoppet.ai\
+  ├─ models\    ← 放模型 + characters.json
+  └─ vendor\    ← 放 Cubism Core
+  ```
+  (`%APPDATA%` 通常是 `C:\Users\你的帳號\AppData\Roaming`)
+
+### 步驟 3:放 Cubism Core(必要)
+1. 到 **[Live2D Cubism SDK for Web](https://www.live2d.com/sdk/download/web/)** 下載 SDK(下載即代表同意其授權)。
+2. 解壓後找到 `Core\live2dcubismcore.min.js`。
+3. 把它複製到 `vendor\` 資料夾,最後長這樣:
+   ```
+   vendor\live2dcubismcore.min.js
+   ```
+
+### 步驟 4:放 Live2D 模型(必要)
+1. 準備一個你**自有或已授權**的 Live2D 模型(要含 `.model3.json`、`.moc3`、材質等整包)。
+   - 找免費模型可從 [Live2D 官方免費素材](https://www.live2d.com/zh-CHT/learn/sample/)(受 Free Material License 約束)。
+2. 把整個模型資料夾放進 `models\`,例如:
+   ```
+   models\mygirl\mygirl.model3.json
+   models\mygirl\mygirl.moc3
+   models\mygirl\... (材質、表情、動作)
+   ```
+3. 在 `models\` 建立一個 `characters.json`(可參考倉庫的 [`characters.example.json`](public/models/characters.example.json)),最小範例:
+   ```json
+   {
+     "active": "mygirl",
+     "characters": [
+       { "id": "mygirl", "name": "我的角色", "path": "mygirl/mygirl.model3.json", "scale": 1.0 }
+     ]
+   }
+   ```
+   > `path` 是相對 `models\` 的路徑。`emotions` / `fixedParams` 為進階選填(情緒表情映射、關掉多餘部件),可先省略。
+4. **重新啟動 App** → 角色就會出現。
+
+### 步驟 5:給她大腦(必要,否則只能點擊互動、不能聊天)
+二擇一:
+- **本地、免費(推薦)**:安裝 [Ollama](https://ollama.com),然後開命令列執行:
+  ```powershell
+  winget install Ollama.Ollama
+  ollama pull qwen2.5:3b
+  ```
+  App 預設就會找本地 Ollama,裝好即可用。
+- **雲端(要付費 API)**:托盤右鍵 → 設定 → 填入 **DeepSeek API Key**([申請](https://platform.deepseek.com))。
+
+完成後按 `Ctrl+Shift+A` 就能跟她聊天了。
+
+### 步驟 6:語音(選用)
+- **朗讀**:預設使用微軟 Edge 神經語音(免安裝、需網路),開箱就有聲音;可在設定切換聲線或改用系統語音。
+- **語音輸入(對她說話)/ 全離線 Piper 語音**:需要額外的 Whisper / Piper 元件。目前自動安裝腳本(`setup-speech.ps1`)需從原始碼取得;若你不熟,先用文字聊天即可。
+
+### 常見問題
+| 症狀 | 原因 / 解法 |
+|---|---|
+| 只有 `(。・ω・。)` 引導畫面 | 還沒放 Cubism Core 或模型(步驟 3、4),放好後重啟 |
+| 打字她不回應 / 說「腦袋連不上」 | 還沒裝大腦(步驟 5);本地請確認 Ollama 有在執行 |
+| 朗讀沒聲音 | 設定 → 語音,確認沒靜音;Edge 語音需要網路 |
+| 有新版本提示 | 點「更新」她會自動下載安裝並重啟 |
+
+---
+
 ## 目前進度
 
 - ✅ Tauri v2 + Vue 3 + Vite 專案骨架
@@ -28,14 +110,16 @@ Windows 桌面常駐的 Live2D 虛擬人助理,全本地運算優先。本倉庫
 - ⬜ M3 後半:寫入類工具(寫檔、執行指令)+ 沙箱
 - ⬜ M4.6:記憶向量檢索(語意搜尋舊記憶)
 
-## 環境需求
+## 環境需求(開發者,從原始碼建置)
+
+> 只想使用、不改程式碼的話不需要這些,看上面〈🐾 使用者安裝指南〉即可。
 
 1. **Node.js** 20+
 2. **Rust**(stable,經 [rustup](https://rustup.rs) 安裝)
 3. **Visual Studio Build Tools**(含「使用 C++ 的桌面開發」工作負載)
 4. **WebView2 Runtime**(Windows 11 內建)
 
-## 安裝與啟動
+## 安裝與啟動(開發者)
 
 **懶人包**:`powershell -ExecutionPolicy Bypass -File scripts\setup.ps1` 會自動安裝 Node / Rust / VS Build Tools、執行 npm install,並引導下載 Cubism Core。
 
