@@ -21,6 +21,12 @@ export interface ActiveModelConfig {
    * 例:{ "happy": "F01", "surprised": "motion:Flick" }
    */
   emotions?: Record<string, string>;
+  /**
+   * 每幀強制設定的參數,用來關掉 VTube 匯出模型多餘的半透明部件。
+   * 這類參數常不被任何動作控制、卡在內建初始值,且設一次會被動畫每幀重置,
+   * 所以必須每幀覆寫。例:{ "ShouBing": 0 } 關掉「手柄」那隻多餘的手。
+   */
+  fixedParams?: Record<string, number>;
 }
 
 export interface StageCallbacks {
@@ -51,6 +57,7 @@ let lastInteraction = Date.now();
 let idleInterval: number | undefined;
 let lastHoverReact = 0;
 let emotionMap: Record<string, string> = {};
+let fixedParams: Record<string, number> = {};
 
 let globalListenersReady = false;
 
@@ -124,6 +131,7 @@ export async function loadModel(cfg: ActiveModelConfig, cb?: StageCallbacks): Pr
   userScale = cfg.scale ?? 1;
   idleMs = (cfg.idleMinutes ?? 3) * 60_000;
   emotionMap = cfg.emotions ?? {};
+  fixedParams = cfg.fixedParams ?? {};
 
   const next = await Live2DModel.from(cfg.path, { ticker: Ticker.shared });
   model = next;
@@ -330,7 +338,7 @@ export function setTalking(active: boolean): void {
 }
 
 /**
- * 在 motionManager.update 之後覆寫嘴巴參數。
+ * 在 motionManager.update 之後覆寫參數:① 對嘴 ② fixedParams(關掉多餘部件)。
  * 動作曲線每幀都會重寫參數,所以必須掛在它後面才不會被蓋掉。
  */
 function hookMouth(): void {
@@ -345,6 +353,10 @@ function hookMouth(): void {
       .setParameterValueById;
     if (typeof setParam !== "function") return updated;
     try {
+      // 每幀強制固定參數(道具/多餘部件),避免被動畫重置回半透明
+      for (const id in fixedParams) {
+        setParam.call(core, id, fixedParams[id]);
+      }
       if (talking) {
         // 兩個不同週期的正弦疊加,看起來比單一頻率自然
         const t = now / 1000;
@@ -355,7 +367,7 @@ function hookMouth(): void {
         setParam.call(core, "ParamMouthOpenY", 0);
       }
     } catch {
-      /* 模型沒有 ParamMouthOpenY 也不致命 */
+      /* 模型缺對應參數也不致命 */
     }
     return updated;
   };
