@@ -74,6 +74,34 @@ function ensureGlobalListeners(): void {
     model?.focus(e.clientX, e.clientY);
     handleHover(e.clientX, e.clientY);
   });
+  watchDpr(); // 跨不同縮放比的螢幕時更新渲染解析度
+}
+
+/**
+ * 視窗被拖到不同 DPI(螢幕縮放)的螢幕時,devicePixelRatio 會改變,
+ * 但 pixi 的 renderer.resolution 是初始化時固定的,不更新就會大小錯亂、累積偏差。
+ * 用 matchMedia 監聽 DPI 變化,變了就同步 resolution 並重新佈局。
+ */
+function watchDpr(): void {
+  const dpr = window.devicePixelRatio || 1;
+  const mq = window.matchMedia(`(resolution: ${dpr}dppx)`);
+  mq.addEventListener(
+    "change",
+    () => {
+      applyResolution();
+      watchDpr(); // dpr 已變,改聽新的門檻
+    },
+    { once: true }
+  );
+}
+
+function applyResolution(): void {
+  if (!app) return;
+  const dpr = window.devicePixelRatio || 1;
+  // pixi v7 型別把 resolution 標記唯讀,但執行期可設;設完重新依視窗尺寸佈局
+  (app.renderer as unknown as { resolution: number }).resolution = dpr;
+  app.resize();
+  fitModel();
 }
 
 /** 依指定設定載入模型(供首次載入與切換角色共用)。失敗時 throw。 */
