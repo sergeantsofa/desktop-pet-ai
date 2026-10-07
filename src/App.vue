@@ -908,6 +908,10 @@ async function onUpdateNow(): Promise<void> {
           📁 我要放自己的模型(開啟資料夾)
         </button>
         <p class="placeholder-hint">想換自己的 Live2D 模型?詳見專案 README。</p>
+        <!-- 診斷用:把真正的原因顯示出來(以前只在非 Tauri 才顯示,導致問題難以察覺) -->
+        <p class="placeholder-hint" style="word-break: break-all; opacity: 0.75">
+          原因:{{ loadError }}
+        </p>
       </template>
       <template v-else>
         <p class="placeholder-text">{{ loadError }}</p>

@@ -134,6 +134,9 @@ pub fn run() {
 
             // Fish Speech:若開了自動啟動,把本地 API server 跑起來
             println!("[fish] {}", fish::try_start(app.handle()));
+
+            // 啟動保險:每日自動備份一次(安裝程式曾把整個 appdata 清掉)
+            backup::auto_backup_on_startup(app.handle());
             Ok(())
         })
         .on_window_event(window::handle_window_event)

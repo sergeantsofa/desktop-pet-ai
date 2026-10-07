@@ -1,0 +1,17 @@
+{
+  "_說明": "這是「隨安裝包散布」的預設角色清單。使用者自己在 %APPDATA%\\com.desktoppet.ai\\models\\characters.json 放的清單會優先於這份。",
+  "active": "haru",
+  "characters": [
+    {
+      "id": "haru",
+      "name": "Haru(官方範例)",
+      "path": "/models/haru/haru_greeter_t03.model3.json",
+      "scale": 1.0,
+      "idleMinutes": 3,
+      "emotions": {
+        "happy": "motion:Tap",
+        "surprised": "motion:Tap"
+      }
+    }
+  ]
+}

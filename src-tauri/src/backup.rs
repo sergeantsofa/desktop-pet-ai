@@ -47,6 +47,51 @@ pub fn backup_appdata(app: AppHandle) -> Result<BackupResult, String> {
     backup_dir(&root)
 }
 
+/// 距上次備份超過這個時間才自動備份(避免每次啟動都複製 20MB)
+const AUTO_BACKUP_INTERVAL_SECS: i64 = 24 * 60 * 60;
+
+/// 啟動時的自動保險:距上次備份超過 24 小時就快照一份。
+///
+/// 為什麼需要:安裝程式覆蓋安裝時曾把整個 `%APPDATA%` 清掉(使用者的模型、
+/// 記憶、設定全部消失)。有了每日備份,最壞情況也只損失一天。
+/// 失敗一律靜默(備份不該擋啟動)。
+pub fn auto_backup_on_startup(app: &AppHandle) {
+    let Ok(root) = app.path().app_data_dir() else {
+        return;
+    };
+    if !root.is_dir() {
+        return;
+    }
+    let backups = root.join("backups");
+
+    // 已經有 24 小時內的備份就跳過
+    if let Some(latest) = enumerate(&backups).first() {
+        if let Some(ts) = parse_label_epoch(&latest.label) {
+            if chrono::Local::now().timestamp() - ts < AUTO_BACKUP_INTERVAL_SECS {
+                return;
+            }
+        }
+    }
+
+    match backup_dir(&root) {
+        Ok(r) => println!(
+            "[backup] 自動備份完成:{} 個檔 / {:.1} MB → {}",
+            r.files,
+            r.bytes as f64 / 1_048_576.0,
+            r.label
+        ),
+        Err(e) => eprintln!("[backup] 自動備份失敗(不影響啟動): {e}"),
+    }
+}
+
+/// 把 `YYYY-MM-DD_HHMMSS` 標籤轉回 unix timestamp;解析不出來回 None。
+fn parse_label_epoch(label: &str) -> Option<i64> {
+    // 同一秒內重複備份會是 `..._1`,取前 17 碼就好
+    let core = label.get(..17)?;
+    let dt = chrono::NaiveDateTime::parse_from_str(core, "%Y-%m-%d_%H%M%S").ok()?;
+    Some(dt.and_local_timezone(chrono::Local).single()?.timestamp())
+}
+
 /// 列出目前所有的備份(新到舊),給 UI 顯示。
 #[tauri::command]
 pub fn list_backups(app: AppHandle) -> Result<Vec<BackupInfo>, String> {
