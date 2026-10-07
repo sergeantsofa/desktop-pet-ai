@@ -20,7 +20,7 @@ use tauri::{AppHandle, Manager};
 use std::os::windows::process::CommandExt as _;
 
 /// 隱藏子行程的主控台視窗(Windows CREATE_NO_WINDOW)
-fn hide_console(cmd: &mut Command) {
+pub(crate) fn hide_console(cmd: &mut Command) {
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000);
     #[cfg(not(windows))]
@@ -173,7 +173,8 @@ pub async fn tts_edge(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
-fn run_edge(text: &str, voice: &str, rate_pct: i32) -> Result<Vec<u8>, String> {
+/// Edge TTS 合成的底層實作。`pub(crate)` 讓區網遠端聊天(remote.rs 的 /api/tts)也能用同款甜美語音。
+pub(crate) fn run_edge(text: &str, voice: &str, rate_pct: i32) -> Result<Vec<u8>, String> {
     use msedge_tts::tts::{client::connect, SpeechConfig};
 
     // 短名 "zh-CN-XiaoyiNeural" → 端點要的完整名稱
@@ -198,6 +199,70 @@ fn run_edge(text: &str, voice: &str, rate_pct: i32) -> Result<Vec<u8>, String> {
         return Err("Edge TTS 回傳空音訊".into());
     }
     Ok(audio.audio_bytes)
+}
+
+/// Fish Speech 合成:HTTP API 模式(本地 Fish Speech FastAPI 服務)。
+/// POST /v1/tts → 回傳 WAV bytes → 前端 model.speak 對嘴。
+/// `ref_audio` 與 `ref_text` 為選擇性的參考音訊(台灣腔範本)。
+#[tauri::command]
+pub async fn tts_fish(
+    text: String,
+    api_url: Option<String>,
+    ref_audio: Option<String>,
+    ref_text: Option<String>,
+) -> Result<tauri::ipc::Response, String> {
+    let url = api_url
+        .filter(|u| !u.is_empty())
+        .unwrap_or_else(|| "http://127.0.0.1:8080/v1/tts".into());
+
+    let mut body = serde_json::json!({
+        "text": text,
+        "format": "wav",
+    });
+    // 參考音色(台灣腔範本):Fish /v1/tts 的 ServeTTSRequest 要 references=[{audio, text}],
+    // JSON 模式下 audio 是「WAV 的 base64」(伺服器會自動 b64decode),不是檔案路徑。
+    if let Some(ra) = ref_audio.filter(|s| !s.is_empty()) {
+        match std::fs::read(&ra) {
+            Ok(bytes) => {
+                use base64::Engine;
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                body["references"] = serde_json::json!([{
+                    "audio": b64,
+                    "text": ref_text.unwrap_or_default(),
+                }]);
+            }
+            Err(e) => return Err(format!("讀取參考音訊失敗({ra}):{e}")),
+        }
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("建立 HTTP client 失敗:{e}"))?;
+
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Fish Speech API 連線失敗(服務有開嗎?):{e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body_text = resp.text().await.unwrap_or_default();
+        return Err(format!("Fish Speech API 回傳 {status}: {body_text}"));
+    }
+
+    let wav = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("讀取 Fish Speech 音訊失敗:{e}"))?;
+
+    if wav.is_empty() {
+        return Err("Fish Speech 回傳空音訊".into());
+    }
+
+    Ok(tauri::ipc::Response::new(wav.to_vec()))
 }
 
 #[cfg(test)]

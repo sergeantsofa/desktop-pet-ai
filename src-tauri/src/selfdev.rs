@@ -11,6 +11,8 @@ use std::{
     process::Command,
 };
 
+use tauri::Manager;
+
 #[cfg(windows)]
 use std::os::windows::process::CommandExt as _;
 
@@ -18,6 +20,20 @@ use std::os::windows::process::CommandExt as _;
 const DENY_DIRS: &[&str] = &[".git", "node_modules", "target", "dist", ".claude"];
 /// 單檔讀取上限(避免塞爆 context)
 const MAX_READ_BYTES: usize = 60_000;
+
+/// 禁止「她自己改」的關鍵檔(比對相對路徑結尾):護欄/沙箱/驗證閘、金鑰、工具權限核心。
+/// 不讓她拆掉自己的安全機制(例如改 selfdev.rs 把驗證門關掉)。要動這些請由人手動編輯。
+const DENY_WRITE_FILES: &[&str] = &[
+    "src-tauri/src/selfdev.rs",   // 護欄/沙箱/驗證閘本身
+    "src-tauri/src/llm/keys.rs",  // 金鑰處理
+    "src-tauri/src/agent/mod.rs", // 工具權限 + run_self_dev(驗證閘的呼叫端)
+];
+
+/// 若 rel 命中受保護檔,回傳該檔(供錯誤訊息);否則 None。
+fn write_protected(rel: &str) -> Option<&'static str> {
+    let lp = rel.replace('\\', "/").to_lowercase();
+    DENY_WRITE_FILES.iter().copied().find(|p| lp.ends_with(*p))
+}
 
 fn hide_console(cmd: &mut Command) {
     #[cfg(windows)]
@@ -98,6 +114,11 @@ pub fn git_checkpoint(root: &str, note: &str) -> Result<(), String> {
 }
 
 pub fn write_file(root: &str, rel: &str, content: &str) -> Result<String, String> {
+    if let Some(p) = write_protected(rel) {
+        return Err(format!(
+            "{p} 是受保護檔(自我修改的護欄/金鑰/工具權限核心),不允許自我修改。要改請由人手動編輯。"
+        ));
+    }
     let path = resolve(root, rel)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("建立資料夾失敗:{e}"))?;
@@ -123,22 +144,253 @@ fn git(root: &str, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-/// 跑前端型別檢查當「編譯閘」;回傳結果摘要讓模型自己判讀。
-/// (cargo 常不在 PATH,且耗時長;MVP 先用 npm typecheck 驗前端改動)
-pub fn run_check(root: &str) -> Result<String, String> {
-    let _ = Path::new(root);
-    let mut cmd = Command::new("npm");
-    cmd.current_dir(root).args(["run", "typecheck"]);
-    hide_console(&mut cmd);
-    let out = cmd.output().map_err(|e| format!("npm 執行失敗:{e}"))?;
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    if out.status.success() {
-        Ok("型別檢查通過 ✅".into())
-    } else {
-        let tail: String = format!("{stdout}\n{stderr}");
-        let tail = tail.trim();
-        let start = tail.char_indices().rev().nth(1500).map(|(i, _)| i).unwrap_or(0);
-        Err(format!("型別檢查失敗:\n{}", &tail[start..]))
+/* ---------------- 自動驗證閘(P0:改完自動驗證,沒過自動還原) ---------------- */
+
+/// 驗證結果三態。關鍵:把「工具跑不起來(Unavailable)」與「檢查真的有錯(Fail)」分開,
+/// 否則環境問題(cargo/npm 不在 PATH)會被誤判成失敗,把好的修改也還原掉。
+#[derive(Debug)]
+pub enum CheckOutcome {
+    Pass(String),
+    Fail(String),
+    Unavailable(String),
+}
+
+/// 依「被改的檔」決定要跑哪個編譯閘並執行;changed=None 時前端+後端都跑(dev_run_check 用)。
+pub fn verify_change(root: &str, changed: Option<&str>) -> CheckOutcome {
+    let (want_front, want_rust) = match changed {
+        None => (true, true),
+        Some(p) => {
+            let lp = p.replace('\\', "/").to_lowercase();
+            // 設定/資料檔沒有編譯器:用 JSON 解析當驗證(常見「把 characters.json 改壞」)
+            if lp.ends_with(".json") {
+                return validate_json(root, p);
+            }
+            let rust = lp.ends_with(".rs") || lp.contains("src-tauri/");
+            let front = lp.ends_with(".ts")
+                || lp.ends_with(".tsx")
+                || lp.ends_with(".vue")
+                || lp.ends_with(".js")
+                || lp.ends_with(".jsx")
+                || lp.ends_with(".mjs")
+                || lp.starts_with("src/");
+            if !rust && !front {
+                return CheckOutcome::Pass(format!("{p}:無對應編譯檢查,略過驗證"));
+            }
+            (front, rust)
+        }
+    };
+
+    let mut details = String::new();
+    let mut any_fail = false;
+    let mut any_pass = false;
+    let mut any_unavail = false;
+
+    if want_front {
+        match run_typecheck(root) {
+            CheckOutcome::Pass(m) => { any_pass = true; details.push_str(&format!("前端型別檢查{m}\n")); }
+            CheckOutcome::Fail(m) => { any_fail = true; details.push_str(&format!("{m}\n")); }
+            CheckOutcome::Unavailable(m) => { any_unavail = true; details.push_str(&format!("前端檢查略過({m})\n")); }
+        }
     }
+    if want_rust {
+        match run_cargo_check(root) {
+            CheckOutcome::Pass(m) => { any_pass = true; details.push_str(&format!("Rust 編譯檢查{m}\n")); }
+            CheckOutcome::Fail(m) => { any_fail = true; details.push_str(&format!("{m}\n")); }
+            CheckOutcome::Unavailable(m) => { any_unavail = true; details.push_str(&format!("Rust 檢查略過({m})\n")); }
+        }
+    }
+
+    let details = details.trim().to_string();
+    if any_fail {
+        CheckOutcome::Fail(details)
+    } else if any_pass {
+        CheckOutcome::Pass(details)
+    } else if any_unavail {
+        CheckOutcome::Unavailable(details)
+    } else {
+        CheckOutcome::Pass("(沒有要檢查的項目)".into())
+    }
+}
+
+/// 跑一個指令確認「跑得起來」(用於工具可用性探測:跑不起來 → Unavailable,不還原)
+fn runs_ok(mut cmd: Command) -> bool {
+    matches!(cmd.output(), Ok(o) if o.status.success())
+}
+
+/// 取 stdout+stderr 的尾端 n 字元(錯誤訊息只留尾段,避免塞爆 context)
+fn tail(out: &std::process::Output, n: usize) -> String {
+    let s = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let s = s.trim();
+    match s.char_indices().rev().nth(n) {
+        Some((i, _)) => s[i..].to_string(),
+        None => s.to_string(),
+    }
+}
+
+/// 組 npm 指令(Windows 上 npm 是 npm.cmd,要走 `cmd /C` 才找得到)
+fn npm_cmd(root: &str, args: &[&str]) -> Command {
+    let mut cmd;
+    #[cfg(windows)]
+    {
+        cmd = Command::new("cmd");
+        cmd.arg("/C").arg("npm").args(args);
+    }
+    #[cfg(not(windows))]
+    {
+        cmd = Command::new("npm");
+        cmd.args(args);
+    }
+    cmd.current_dir(root);
+    hide_console(&mut cmd);
+    cmd
+}
+
+fn run_typecheck(root: &str) -> CheckOutcome {
+    if !runs_ok(npm_cmd(root, &["--version"])) {
+        return CheckOutcome::Unavailable("找不到 npm".into());
+    }
+    match npm_cmd(root, &["run", "typecheck"]).output() {
+        Ok(out) if out.status.success() => CheckOutcome::Pass("通過 ✅".into()),
+        Ok(out) => CheckOutcome::Fail(format!("型別檢查失敗:\n{}", tail(&out, 1500))),
+        Err(e) => CheckOutcome::Unavailable(format!("npm 執行失敗:{e}")),
+    }
+}
+
+fn run_cargo_check(root: &str) -> CheckOutcome {
+    let dir = Path::new(root).join("src-tauri");
+    if !dir.exists() {
+        return CheckOutcome::Unavailable("找不到 src-tauri".into());
+    }
+    let mut probe = Command::new("cargo");
+    probe.current_dir(&dir).arg("--version");
+    hide_console(&mut probe);
+    if !runs_ok(probe) {
+        return CheckOutcome::Unavailable("找不到 cargo(PATH 沒有 ~/.cargo/bin?)".into());
+    }
+    let mut cmd = Command::new("cargo");
+    cmd.current_dir(&dir).args(["check", "--message-format", "short"]);
+    hide_console(&mut cmd);
+    match cmd.output() {
+        Ok(out) if out.status.success() => CheckOutcome::Pass("通過 ✅".into()),
+        Ok(out) => CheckOutcome::Fail(format!("Rust 編譯失敗:\n{}", tail(&out, 1500))),
+        Err(e) => CheckOutcome::Unavailable(format!("cargo 執行失敗:{e}")),
+    }
+}
+
+/// JSON 檔的驗證:能不能 parse(抓「她把設定/資料檔改成壞 JSON」)
+fn validate_json(root: &str, rel: &str) -> CheckOutcome {
+    let path = match resolve(root, rel) {
+        Ok(p) => p,
+        Err(e) => return CheckOutcome::Unavailable(format!("路徑無效:{e}")),
+    };
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) => return CheckOutcome::Unavailable(format!("讀取失敗:{e}")),
+    };
+    match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(_) => CheckOutcome::Pass(format!("{rel}:JSON 格式正確 ✅")),
+        Err(e) => CheckOutcome::Fail(format!("{rel}:JSON 格式錯誤 — {e}")),
+    }
+}
+
+/// 寫檔前的單檔快照(供「自動驗證沒過 → 精準還原」用,不動到其他未追蹤檔)。
+/// 回傳 None 代表此檔原本不存在(新檔)。
+pub fn snapshot_file(root: &str, rel: &str) -> Option<Vec<u8>> {
+    let path = resolve(root, rel).ok()?;
+    std::fs::read(&path).ok()
+}
+
+/// 依快照精準還原單一檔:Some→寫回舊內容;None→刪掉(新檔)。
+pub fn restore_file(root: &str, rel: &str, snap: Option<Vec<u8>>) -> Result<(), String> {
+    let path = resolve(root, rel)?;
+    match snap {
+        Some(bytes) => std::fs::write(&path, bytes).map_err(|e| format!("還原寫回失敗:{e}")),
+        None => {
+            let _ = std::fs::remove_file(&path);
+            Ok(())
+        }
+    }
+}
+
+/* ---------------- 成長日誌 / 還原點(P1) ---------------- */
+
+/// 把一次「保留下來」的自我修改記進成長日誌(root/self-evolution.md;會被下次快照一起 commit)。
+/// 最新的記在最下面。失敗就靜默略過(日誌不該擋住主流程)。
+pub fn log_evolution(root: &str, file: &str, summary: &str, result: &str) {
+    let root_path = match std::fs::canonicalize(root) {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    let log = root_path.join("self-evolution.md");
+    let stamp = chrono::Local::now().format("%Y-%m-%d %H:%M");
+    let summary = if summary.trim().is_empty() { "(她沒說原因)" } else { summary.trim() };
+    let mut content = std::fs::read_to_string(&log).unwrap_or_default();
+    if content.is_empty() {
+        content.push_str(
+            "# 霓璃的成長日誌\n\n> 她每次成功改自己時自動記一行:改了什麼、為什麼、驗證結果。最新在最下面。\n\n",
+        );
+    }
+    content.push_str(&format!("- **{stamp}** `{file}` — {summary}({result})\n"));
+    let _ = std::fs::write(&log, content);
+}
+
+/// 一個 git 還原點(自我修改快照或一般 commit)
+#[derive(Debug, serde::Serialize)]
+pub struct Checkpoint {
+    pub sha: String,
+    pub date: String,
+    pub note: String,
+}
+
+/// 列出最近的還原點(commit),供設定面板的「時間軸」用。
+pub fn list_checkpoints(root: &str) -> Result<Vec<Checkpoint>, String> {
+    let out = git(root, &["log", "-n", "40", "--pretty=format:%h%x09%ci%x09%s"])?;
+    let mut v = Vec::new();
+    for line in out.lines() {
+        let mut parts = line.splitn(3, '\t');
+        let sha = parts.next().unwrap_or("").trim().to_string();
+        let date = parts.next().unwrap_or("").trim().to_string();
+        let note = parts.next().unwrap_or("").trim().to_string();
+        if !sha.is_empty() {
+            v.push(Checkpoint { sha, date, note });
+        }
+    }
+    Ok(v)
+}
+
+/// 還原到指定還原點。還原前先自動快照現狀(時光旅行後回得來);sha 須為十六進位。
+pub fn restore_checkpoint(root: &str, sha: &str) -> Result<String, String> {
+    let sha = sha.trim();
+    if sha.is_empty() || sha.len() > 40 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("無效的還原點代碼。".into());
+    }
+    let _ = git_checkpoint(root, "還原前自動快照");
+    git(root, &["reset", "--hard", sha])?;
+    Ok(format!("已還原到還原點 {sha}(還原前的狀態也已存成一個快照,可再還原回來)。"))
+}
+
+/* ---------------- Tauri 命令(設定面板的還原點面板用) ---------------- */
+
+fn dev_root(app: &tauri::AppHandle) -> Result<String, String> {
+    let s = app.state::<crate::llm::SettingsState>();
+    let root = s.0.lock().unwrap().self_dev_root.clone();
+    if root.trim().is_empty() {
+        Err("尚未設定自我修改的專案根目錄(設定 → 自我修改)。".into())
+    } else {
+        Ok(root)
+    }
+}
+
+#[tauri::command]
+pub fn dev_list_checkpoints(app: tauri::AppHandle) -> Result<Vec<Checkpoint>, String> {
+    list_checkpoints(&dev_root(&app)?)
+}
+
+#[tauri::command]
+pub fn dev_restore_checkpoint(app: tauri::AppHandle, sha: String) -> Result<String, String> {
+    restore_checkpoint(&dev_root(&app)?, &sha)
 }

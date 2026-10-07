@@ -31,6 +31,27 @@ jobs:
       - name: Install frontend deps
         run: npm ci
 
+      # 版本號三處必須一致,且要跟推上來的 tag 對得起來。
+      # 不一致就當場失敗 —— 免得上線後 App 的更新比對基準(tauri.conf.json)是錯的。
+      - name: 檢查版本號一致性
+        shell: pwsh
+        run: |
+          $pkg     = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauri   = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $cargo   = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $tag     = "${{ github.ref_name }}".TrimStart("v")
+          Write-Host "package.json = $pkg"
+          Write-Host "tauri.conf   = $tauri"
+          Write-Host "Cargo.toml   = $cargo"
+          Write-Host "tag          = $tag"
+          if ($pkg -ne $tauri -or $tauri -ne $cargo) {
+            throw "版本號不一致:package.json=$pkg, tauri.conf.json=$tauri, Cargo.toml=$cargo"
+          }
+          if ($tag -ne $tauri) {
+            throw "tag ($tag) 與版本號 ($tauri) 不符 —— 請確認推的是 v$tauri"
+          }
+          Write-Host "✅ 版本號一致:$tauri"
+
       - name: Build, sign & publish
         uses: tauri-apps/tauri-action@v0
         env:
@@ -40,6 +61,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Desktop Pet AI ${{ github.ref_name }}"
-          releaseBody: "見下方 assets;App 會自動偵測更新。"
+          # 更新說明直接讀專案內的 RELEASE_NOTES.md,改文案不用動 workflow
+          releaseBody: "./RELEASE_NOTES.md"
           releaseDraft: false
           prerelease: false

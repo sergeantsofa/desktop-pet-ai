@@ -23,15 +23,78 @@ use tokio::sync::oneshot;
 pub struct PermissionState(pub Mutex<HashMap<String, oneshot::Sender<bool>>>);
 
 /// OpenAI tools 格式的工具規格(隨對話請求送出)。
-/// self_dev=true 時額外提供「讀/改自己原始碼」的工具(層次二)。
-pub fn tool_specs(self_dev: bool) -> Value {
+/// self_dev=true 時額外提供「讀/改自己原始碼」的工具(層次二);
+/// spotify=true 時額外提供 Spotify 播放控制工具。
+pub fn tool_specs(self_dev: bool, spotify: bool) -> Value {
     let mut specs = base_tool_specs();
     if self_dev {
         if let (Some(arr), Value::Array(dev)) = (specs.as_array_mut(), self_dev_tool_specs()) {
             arr.extend(dev);
         }
     }
+    if spotify {
+        if let (Some(arr), Value::Array(sp)) = (specs.as_array_mut(), spotify_tool_specs()) {
+            arr.extend(sp);
+        }
+    }
     specs
+}
+
+/// Spotify 播放控制工具(僅在 spotify_enabled 時提供)
+fn spotify_tool_specs() -> Value {
+    json!([
+        {
+            "type": "function",
+            "function": {
+                "name": "spotify_play",
+                "description": "用 Spotify 播放音樂。query 給歌名/歌手就搜尋並播放;query 留空則是「繼續播放」目前暫停的歌。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "要播放的歌名或歌手,例如「周杰倫 稻香」;繼續播放就留空" }
+                    }
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "spotify_pause",
+                "description": "暫停 Spotify 目前的播放。",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "spotify_next",
+                "description": "Spotify 跳到下一首。",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "spotify_previous",
+                "description": "Spotify 回到上一首。",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "spotify_volume",
+                "description": "調整 Spotify 音量。給 percent(0~100)就設成絕對音量;或給 direction(up/down)做相對調整(大聲/小聲一點)。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "percent": { "type": "integer", "description": "絕對音量 0~100" },
+                        "direction": { "type": "string", "enum": ["up", "down"], "description": "相對調整:up 大聲一點、down 小聲一點" }
+                    }
+                }
+            }
+        }
+    ])
 }
 
 fn base_tool_specs() -> Value {
@@ -82,7 +145,9 @@ fn base_tool_specs() -> Value {
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "content": { "type": "string", "description": "要記住的事,例如「使用者喜歡貓」" }
+                        "content": { "type": "string", "description": "要記住的事,例如「使用者喜歡貓」" },
+                        "importance": { "type": "integer", "description": "重要度 1~5(5=核心身分/長期約定,3=一般偏好,1=瑣事);越高之後越會被優先想起來。預設 3" },
+                        "kind": { "type": "string", "enum": ["fact", "preference", "relationship", "event"], "description": "分類:fact 事實 / preference 偏好 / relationship 關係 / event 事件。預設 fact" }
                     },
                     "required": ["content"]
                 }
@@ -92,7 +157,7 @@ fn base_tool_specs() -> Value {
             "type": "function",
             "function": {
                 "name": "search_memory",
-                "description": "用關鍵字搜尋你更久之前的記憶(最近的記憶已在系統提示裡,不用搜)。",
+                "description": "搜尋你更久之前的記憶(語意搜尋,會找意思相近的、不只字面;最近的記憶已在系統提示裡)。",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -153,6 +218,22 @@ fn base_tool_specs() -> Value {
                     "required": ["keyword"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "clear_desktop",
+                "description": "桌面霸權術:把桌面上其他所有 App 視窗最小化,只留你自己獨佔整個桌面。使用者說「清空桌面」「獨佔桌面」之類時用。",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "restore_desktop",
+                "description": "把剛剛用桌面霸權術收起來的視窗全部還原歸位。使用者說「復原桌面」「視窗歸位」「把視窗放回來」時用。",
+                "parameters": { "type": "object", "properties": {} }
+            }
         }
     ])
 }
@@ -187,12 +268,13 @@ fn self_dev_tool_specs() -> Value {
             "type": "function",
             "function": {
                 "name": "dev_write_file",
-                "description": "改寫你自己專案的某個檔(整個檔覆寫)。會先請使用者同意,並自動建立 git 還原點。改完務必呼叫 dev_run_check 驗證。",
+                "description": "改寫你自己專案的某個檔(整個檔覆寫)。會先請使用者同意、自動建立還原點,並在寫入後『自動驗證(前端型別/Rust 編譯/JSON 格式),沒過會自動還原到修改前』。所以一次只改一個檔、確保它自己就能通過編譯;若回報驗證沒過,看錯誤訊息修正後再寫一次。",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "path": { "type": "string", "description": "相對路徑" },
-                        "content": { "type": "string", "description": "檔案的完整新內容" }
+                        "content": { "type": "string", "description": "檔案的完整新內容" },
+                        "summary": { "type": "string", "description": "一句話說明這次為什麼改、改了什麼(會記進成長日誌 self-evolution.md)" }
                     },
                     "required": ["path", "content"]
                 }
@@ -202,7 +284,7 @@ fn self_dev_tool_specs() -> Value {
             "type": "function",
             "function": {
                 "name": "dev_run_check",
-                "description": "跑型別檢查驗證你剛剛的修改有沒有壞掉。改完一定要驗。",
+                "description": "手動跑驗證(前端型別檢查 + Rust 編譯檢查),確認專案目前沒壞掉。dev_write_file 已會自動驗證,這個用在你想再整體確認時。",
                 "parameters": { "type": "object", "properties": {} }
             }
         },
@@ -235,6 +317,13 @@ pub fn tool_label(name: &str) -> &'static str {
         "dev_write_file" => "改自己的碼",
         "dev_run_check" => "驗證修改",
         "dev_revert" => "還原修改",
+        "spotify_play" => "放音樂",
+        "spotify_pause" => "暫停音樂",
+        "spotify_next" => "下一首",
+        "spotify_previous" => "上一首",
+        "spotify_volume" => "調音量",
+        "clear_desktop" => "清空桌面",
+        "restore_desktop" => "復原桌面",
         _ => "使用工具",
     }
 }
@@ -247,7 +336,9 @@ pub async fn execute(
     name: &str,
     args: &Value,
     cloud: bool,
+    identity: &str,
 ) -> String {
+    eprintln!("[agent] 工具呼叫:{name} {args}");
     match name {
         "get_time" => get_time(),
         "system_status" => system_status().await,
@@ -274,14 +365,23 @@ pub async fn execute(
             if content.is_empty() {
                 return "錯誤:沒有提供要記住的內容。".into();
             }
-            match crate::memory::save(app, content) {
-                Ok(()) => format!("已記住:{content}"),
+            let importance = args["importance"].as_i64().unwrap_or(3);
+            let kind = args["kind"].as_str().unwrap_or("fact");
+            match crate::memory::remember(app, identity, content, importance, kind).await {
+                Ok(()) => {
+                    // 新記憶累積到門檻 → 背景重算「她眼中的這個人」
+                    tauri::async_runtime::spawn(crate::llm::provider::maybe_refresh_persona(
+                        app.clone(),
+                        identity.to_string(),
+                    ));
+                    format!("已記住:{content}")
+                }
                 Err(e) => format!("記憶寫入失敗:{e}"),
             }
         }
         "search_memory" => {
             let keyword = args["keyword"].as_str().unwrap_or("").trim();
-            match crate::memory::search(app, keyword, 10) {
+            match crate::memory::recall(app, identity, keyword, 10).await {
                 Ok(rows) if rows.is_empty() => format!("沒有找到跟「{keyword}」有關的記憶。"),
                 Ok(rows) => rows
                     .iter()
@@ -296,7 +396,7 @@ pub async fn execute(
             if keyword.is_empty() {
                 return "錯誤:沒有提供關鍵字。".into();
             }
-            match crate::memory::forget(app, keyword) {
+            match crate::memory::forget(app, identity, keyword) {
                 Ok(0) => format!("本來就沒有跟「{keyword}」有關的記憶。"),
                 Ok(n) => format!("已忘掉 {n} 條跟「{keyword}」有關的記憶。"),
                 Err(e) => format!("刪除記憶失敗:{e}"),
@@ -340,6 +440,24 @@ pub async fn execute(
         "dev_list_dir" | "dev_read_file" | "dev_write_file" | "dev_run_check" | "dev_revert" => {
             return run_self_dev(app, request_id, name, args).await;
         }
+        // ---------- Spotify 播放控制 ----------
+        "spotify_play" => crate::spotify::play(app, args["query"].as_str().unwrap_or("")).await,
+        "spotify_pause" => crate::spotify::pause(app).await,
+        "spotify_next" => crate::spotify::next(app).await,
+        "spotify_previous" => crate::spotify::previous(app).await,
+        "spotify_volume" => {
+            if let Some(p) = args["percent"].as_i64() {
+                crate::spotify::set_volume(app, p).await
+            } else {
+                match args["direction"].as_str() {
+                    Some("down") => crate::spotify::adjust_volume(app, -15).await,
+                    _ => crate::spotify::adjust_volume(app, 15).await,
+                }
+            }
+        }
+        // ---------- 桌面霸權術 ----------
+        "clear_desktop" => crate::desktop::clear(app),
+        "restore_desktop" => crate::desktop::restore(app),
         other => format!("錯誤:沒有叫做 {other} 的工具。"),
     }
 }
@@ -347,10 +465,10 @@ pub async fn execute(
 /// 自我修改工具的執行(讀/列自動;寫/還原要使用者同意 + git 快照)
 async fn run_self_dev(app: &AppHandle, request_id: &str, name: &str, args: &Value) -> String {
     use crate::llm::SettingsState;
-    let (enabled, root) = {
+    let (enabled, root, auto_verify) = {
         let s = app.state::<SettingsState>();
         let g = s.0.lock().unwrap();
-        (g.self_dev_enabled, g.self_dev_root.clone())
+        (g.self_dev_enabled, g.self_dev_root.clone(), g.self_dev_auto_verify)
     };
     if !enabled {
         return "自我修改功能沒有開啟(設定 → 自我修改)。".into();
@@ -360,7 +478,15 @@ async fn run_self_dev(app: &AppHandle, request_id: &str, name: &str, args: &Valu
     match name {
         "dev_list_dir" => crate::selfdev::list_dir(&root, &path).unwrap_or_else(|e| format!("錯誤:{e}")),
         "dev_read_file" => crate::selfdev::read_file(&root, &path).unwrap_or_else(|e| format!("錯誤:{e}")),
-        "dev_run_check" => crate::selfdev::run_check(&root).unwrap_or_else(|e| e),
+        "dev_run_check" => {
+            let r = root.clone();
+            match tauri::async_runtime::spawn_blocking(move || crate::selfdev::verify_change(&r, None)).await {
+                Ok(crate::selfdev::CheckOutcome::Pass(m)) => format!("✅ 驗證通過。\n{m}"),
+                Ok(crate::selfdev::CheckOutcome::Fail(m)) => format!("❌ 驗證沒過。\n{m}"),
+                Ok(crate::selfdev::CheckOutcome::Unavailable(m)) => format!("⚠️ 無法驗證(工具跑不起來)。\n{m}"),
+                Err(e) => format!("驗證程序異常:{e}"),
+            }
+        }
         "dev_write_file" => {
             let content = args["content"].as_str().unwrap_or("");
             if path.is_empty() || content.is_empty() {
@@ -369,9 +495,43 @@ async fn run_self_dev(app: &AppHandle, request_id: &str, name: &str, args: &Valu
             if !request_permission(app, request_id, name, &format!("改寫檔案:{path}")).await {
                 return "使用者拒絕了這次修改。".into();
             }
-            // 寫前自動快照,壞了可 dev_revert 救回
+            // 她可附一句「為什麼改」,寫進成長日誌(self-evolution.md)
+            let summary = args["summary"].as_str().unwrap_or("").trim().to_string();
+            // 寫前 git 快照(供設定的還原點/時間軸救回)
             let _ = crate::selfdev::git_checkpoint(&root, &path);
-            crate::selfdev::write_file(&root, &path, content).unwrap_or_else(|e| format!("錯誤:{e}"))
+            // 寫前單檔快照,供「自動驗證沒過 → 精準還原」用(不動其他未追蹤檔)
+            let snap = crate::selfdev::snapshot_file(&root, &path);
+            let write_msg = match crate::selfdev::write_file(&root, &path, content) {
+                Ok(m) => m,
+                Err(e) => return format!("錯誤:{e}"),
+            };
+            if !auto_verify {
+                crate::selfdev::log_evolution(&root, &path, &summary, "未驗證(自動驗證已關)");
+                return format!("{write_msg}\n(自動驗證已關閉;記得自己呼叫 dev_run_check 確認沒改壞)");
+            }
+            // P0 編譯閘:改完自動驗證,沒過自動還原;工具跑不起來(Unavailable)則保留+警告,不誤刪
+            let r = root.clone();
+            let p = path.clone();
+            match tauri::async_runtime::spawn_blocking(move || crate::selfdev::verify_change(&r, Some(&p))).await {
+                Ok(crate::selfdev::CheckOutcome::Pass(m)) => {
+                    crate::selfdev::log_evolution(&root, &path, &summary, "驗證通過");
+                    format!("{write_msg}\n✅ 自動驗證通過:{m}")
+                }
+                Ok(crate::selfdev::CheckOutcome::Unavailable(why)) => {
+                    crate::selfdev::log_evolution(&root, &path, &summary, "未驗證(工具跑不起來,已保留)");
+                    format!("{write_msg}\n⚠️ 無法自動驗證({why}),已保留修改;請自行確認或呼叫 dev_run_check。")
+                }
+                Ok(crate::selfdev::CheckOutcome::Fail(details)) => {
+                    let rev = crate::selfdev::restore_file(&root, &path, snap)
+                        .map(|_| "已自動還原到修改前。".to_string())
+                        .unwrap_or_else(|e| format!("自動還原也失敗了:{e}"));
+                    format!(
+                        "⚠️ 寫入 {path} 後驗證沒過,{rev}\n{details}\n\
+                         (若這是多檔修改的中間步驟、單檔本來就還不能編譯,可到『設定 → 自我修改』關閉「自動驗證並還原」後再試。)"
+                    )
+                }
+                Err(e) => format!("{write_msg}\n⚠️ 驗證程序異常({e}),已保留修改。"),
+            }
         }
         "dev_revert" => {
             if !request_permission(app, request_id, name, "把專案還原到上一個快照").await {

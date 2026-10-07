@@ -66,6 +66,35 @@ pub struct Settings {
     pub self_dev_enabled: bool,
     /// 自我修改的專案根目錄(空字串 = 停用)
     pub self_dev_root: String,
+    /// P0 編譯閘:她改完自己的碼後自動驗證(前端型別/Rust 編譯/JSON),沒過自動還原。預設開。
+    /// 做多檔重構(單檔中間狀態還不能編譯)時可關。
+    pub self_dev_auto_verify: bool,
+    /// Discord 串接:總開關(預設關)。Token 另存認證管理員(provider_id = "discord")
+    pub discord_enabled: bool,
+    /// 她會在這些頻道(純數字頻道 ID)回應每一則訊息
+    pub discord_channels: Vec<String>,
+    /// Spotify 串接:總開關(預設關)。refresh token 另存認證管理員(provider_id = "spotify")
+    pub spotify_enabled: bool,
+    /// Spotify 應用程式的 Client ID(非機密,可存設定檔)
+    pub spotify_client_id: String,
+    /// 區網遠端聊天:總開關(預設關)。開啟後同網段其他電腦可用瀏覽器跟她聊天/下指令。
+    pub remote_enabled: bool,
+    /// 綁定的 IPv4(空字串 = 0.0.0.0 全部網卡);要限定某張網卡就填該 IP。
+    pub remote_host: String,
+    /// 綁定的埠(0 = 預設 8765)
+    pub remote_port: u16,
+    /// 語意記憶用的 Ollama embedding 模型(需先 `ollama pull`);空字串 = 停用語意檢索(退回關鍵字)。
+    pub embed_model: String,
+    /// Fish Speech TTS:桌寵啟動時自動把本地 Fish API server 跑起來(預設關)
+    pub fish_autostart: bool,
+    /// Fish 啟動指令(整行,如 `python -m tools.api_server --listen 127.0.0.1:8080`);空 = 不啟動
+    pub fish_launch_cmd: String,
+    /// 執行 Fish 指令的工作目錄(fish-speech 專案根;空 = 繼承桌寵的工作目錄)
+    pub fish_cwd: String,
+    /// Fish API 根位址,用來判斷是否已在執行(避免重複啟動)。預設 http://127.0.0.1:8080
+    pub fish_api_base: String,
+    /// 遊戲知識庫模式:開啟後她只用「教過的遊戲知識」回答,答案不在庫裡就說不知道(不亂編)。
+    pub game_kb_enabled: bool,
 }
 
 impl Default for Settings {
@@ -87,12 +116,22 @@ impl Default for Settings {
             "vision".into(),
             TaskRoute { provider: "ollama".into(), model: "qwen2.5vl:3b".into() },
         );
+        routing.insert(
+            "gamekb".into(),
+            TaskRoute { provider: "deepseek".into(), model: "deepseek-v4-flash".into() },
+        );
         Self {
             providers: vec![
                 ProviderCfg {
                     id: "ollama".into(),
                     name: "Ollama(本地)".into(),
                     base_url: "http://localhost:11434/v1".into(),
+                    uses_key: false,
+                },
+                ProviderCfg {
+                    id: "ollama-remote".into(),
+                    name: "Ollama(遠端 192.168.60.77)".into(),
+                    base_url: "http://192.168.60.77:11434/v1".into(),
                     uses_key: false,
                 },
                 ProviderCfg {
@@ -117,6 +156,20 @@ impl Default for Settings {
             screenshot_dir: String::new(),
             self_dev_enabled: false,
             self_dev_root: String::new(),
+            self_dev_auto_verify: true,
+            discord_enabled: false,
+            discord_channels: Vec::new(),
+            spotify_enabled: false,
+            spotify_client_id: String::new(),
+            remote_enabled: false,
+            remote_host: String::new(),
+            remote_port: 8765,
+            embed_model: "nomic-embed-text".into(),
+            fish_autostart: false,
+            fish_launch_cmd: String::new(),
+            fish_cwd: String::new(),
+            fish_api_base: "http://127.0.0.1:8080".into(),
+            game_kb_enabled: false,
         }
     }
 }
@@ -211,6 +264,57 @@ pub async fn health_check(
         result.insert(p.id, ok);
     }
     Ok(result)
+}
+
+/// 列出某 provider 可用的模型(打它的 /models;Ollama 回已安裝、DeepSeek 回雲端清單)。
+/// 任何失敗都回空陣列(前端會退回手動輸入),不擋設定面板。
+#[tauri::command]
+pub async fn list_models(
+    state: State<'_, SettingsState>,
+    provider_id: String,
+) -> Result<Vec<String>, String> {
+    let provider = state
+        .0
+        .lock()
+        .unwrap()
+        .providers
+        .iter()
+        .find(|p| p.id == provider_id)
+        .cloned();
+    let Some(p) = provider else {
+        return Ok(vec![]);
+    };
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(3))
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let url = format!("{}/models", p.base_url.trim_end_matches('/'));
+    let mut req = client.get(&url);
+    if p.uses_key {
+        match keys::get_key(&p.id) {
+            Some(k) => req = req.bearer_auth(k),
+            None => return Ok(vec![]),
+        }
+    }
+    let resp = match req.send().await {
+        Ok(r) if r.status().is_success() => r,
+        _ => return Ok(vec![]),
+    };
+    let v: serde_json::Value = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => return Ok(vec![]),
+    };
+    let mut models: Vec<String> = v["data"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    models.sort();
+    Ok(models)
 }
 
 /// 串流對話:結果透過事件回傳

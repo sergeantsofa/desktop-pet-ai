@@ -86,6 +86,24 @@ async function resampleToMono16k(blob: Blob): Promise<Float32Array> {
   return rendered.getChannelData(0);
 }
 
+/**
+ * 把任意取樣率的單聲道 Float32 PCM 轉成 Whisper 要的 16kHz mono PCM16 WAV。
+ * 連續對話模式(converse.ts)用來把收集到的音段送去辨識。
+ */
+export async function pcmToWav16k(samples: Float32Array, sampleRate: number): Promise<Uint8Array> {
+  if (sampleRate === TARGET_RATE) return encodeWav(samples);
+  const frames = Math.max(1, Math.round((samples.length * TARGET_RATE) / sampleRate));
+  const off = new OfflineAudioContext(1, frames, TARGET_RATE);
+  const buf = off.createBuffer(1, samples.length, sampleRate);
+  buf.getChannelData(0).set(samples);
+  const src = off.createBufferSource();
+  src.buffer = buf; // 來源是原取樣率,context 是 16k → 自動重採樣
+  src.connect(off.destination);
+  src.start();
+  const rendered = await off.startRendering();
+  return encodeWav(rendered.getChannelData(0));
+}
+
 function encodeWav(samples: Float32Array): Uint8Array {
   const dataLen = samples.length * 2;
   const buf = new ArrayBuffer(44 + dataLen);

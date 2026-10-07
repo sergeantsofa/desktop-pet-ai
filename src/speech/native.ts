@@ -43,6 +43,21 @@ export async function synthesizeEdge(
   return invoke<ArrayBuffer>("tts_edge", { text, voice, rate });
 }
 
+/** Fish Speech 合成,回傳 WAV bytes。經 HTTP API 呼叫本地 Fish Speech 服務。 */
+export async function synthesizeFish(
+  text: string,
+  apiUrl: string,
+  refAudio?: string,
+  refText?: string,
+): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>("tts_fish", {
+    text,
+    apiUrl,
+    refAudio: refAudio || null,
+    refText: refText || null,
+  });
+}
+
 /** Whisper 辨識 16kHz mono PCM16 WAV。 */
 export async function transcribe(wav: Uint8Array): Promise<string> {
   return invoke<string>("stt_transcribe", { wavB64: toBase64(wav) });

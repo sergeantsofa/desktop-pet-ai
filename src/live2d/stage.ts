@@ -39,18 +39,51 @@ const TAP_BODY_LINES = [
   "嗯?找我有事嗎?",
   "嘿嘿,我在喔。",
   "再戳我要生氣囉!(才不會)",
+  "喂喂,手放開啦,很癢欸!",
+  "戳夠了沒~人家又不是泡泡紙。",
+  "你是不是很無聊?要不要陪我聊天?",
+  "哼,只有想戳我的時候才想起我喔?",
+  "摸魚被我看到囉~快回去工作啦!",
+  "再戳…我可是會記仇的喔(小聲)",
   "想聊天的話按 Ctrl+Shift+A 喔!",
 ];
 
-const TAP_HEAD_LINES = ["嗯~摸頭好舒服…", "欸嘿嘿…", "頭髮要亂了啦~"];
+const TAP_HEAD_LINES = [
+  "嗯~摸頭好舒服…",
+  "欸嘿嘿…",
+  "頭髮要亂了啦~",
+  "再多摸一下下嘛…",
+  "呼…被摸頭整個人都軟了。",
+  "你的手好溫暖喔…",
+  "哼,勉強讓你摸一下啦。",
+];
 
-const IDLE_LINES = ["呼啊…有點睏了…", "(東張西望)", "今天過得還好嗎?", "…zzZ"];
+const IDLE_LINES = [
+  "呼啊…有點睏了…",
+  "(東張西望)",
+  "今天過得還好嗎?",
+  "…zzZ",
+  "好安靜喔…大家都在忙嗎?",
+  "無聊死了啦,陪我玩咩~",
+  "我在這裡乖乖等你喔。",
+  "剛剛那個…算了,沒事。",
+  "(偷偷看了你一眼)",
+  "要不要喝口水、休息一下?",
+  "嗯…肚子有點餓了呢。",
+];
+
+/** 點頭(摸頭)→ 開心的表情;點身體 → 害羞的表情(明確情緒,不亂數) */
+const HEAD_REACT_EXPR = ["爱心眼", "星星眼"];
+const BODY_REACT_EXPR = ["脸红"];
 
 const HEAD_AREA = /head|face|頭/i;
 
 let app: Application | null = null;
 let model: Live2DModel | null = null;
 let callbacks: StageCallbacks = {};
+/** 角色基準縮放(來自 characters.json 的 scale,切換角色時更新) */
+let baseScale = 1;
+/** 使用者額外縮放倍率(設定面板滑桿;跨角色切換保留) */
 let userScale = 1;
 let idleMs = 3 * 60_000;
 let lastInteraction = Date.now();
@@ -58,6 +91,11 @@ let idleInterval: number | undefined;
 let lastHoverReact = 0;
 let emotionMap: Record<string, string> = {};
 let fixedParams: Record<string, number> = {};
+
+/** 頭部中心約在模型整體高度「由上往下」這個比例處,當作視線的平視基準點 */
+const HEAD_GAZE_FRAC = 0.18;
+/** 視線垂直偏移:把基準從「模型幾何中心」上移到「頭部中心」(隨佈局更新) */
+let gazeYOffset = 0;
 
 let globalListenersReady = false;
 
@@ -78,7 +116,7 @@ function ensureGlobalListeners(): void {
   globalListenersReady = true;
   window.addEventListener("resize", fitModel);
   window.addEventListener("pointermove", (e) => {
-    model?.focus(e.clientX, e.clientY);
+    gazeAt(e.clientX, e.clientY);
     handleHover(e.clientX, e.clientY);
   });
   watchDpr(); // 跨不同縮放比的螢幕時更新渲染解析度
@@ -128,7 +166,7 @@ export async function loadModel(cfg: ActiveModelConfig, cb?: StageCallbacks): Pr
     model = null;
   }
 
-  userScale = cfg.scale ?? 1;
+  baseScale = cfg.scale ?? 1;
   idleMs = (cfg.idleMinutes ?? 3) * 60_000;
   emotionMap = cfg.emotions ?? {};
   fixedParams = cfg.fixedParams ?? {};
@@ -169,11 +207,49 @@ function fitModel(): void {
   if (!app || !model) return;
   const w = app.renderer.width / app.renderer.resolution;
   const h = app.renderer.height / app.renderer.resolution;
-  // 以視窗高度為基準縮放,底部置中
-  const scale = (h / model.internalModel.height) * 0.95 * userScale;
+  // 以視窗高度為基準縮放,底部置中;再乘上角色基準與使用者倍率
+  const scale = (h / model.internalModel.height) * 0.95 * baseScale * userScale;
   model.scale.set(scale);
   model.anchor.set(0.5, 1);
   model.position.set(w / 2, h);
+  updateGazeOffset();
+}
+
+/**
+ * 重算視線垂直偏移。`model.focus()` 內部以模型幾何中心(高度 50%)為平視基準,
+ * 但頭部在上方(整體高度約 18% 處),所以游標在頭旁邊時會被算成「一直往上看」。
+ * 這裡算出「中心 → 頭部」的螢幕距離,之後把游標 y 加上它,讓游標在頭部高度時視線為平視。
+ */
+function updateGazeOffset(): void {
+  if (!model) return;
+  const b = model.getBounds();
+  gazeYOffset = b.height * (0.5 - HEAD_GAZE_FRAC);
+}
+
+/** 讓模型看向螢幕座標 (x, y),但以頭部中心為基準(修正垂直偏移)。 */
+function gazeAt(x: number, y: number): void {
+  model?.focus(x, y + gazeYOffset);
+}
+
+/** 設定使用者額外縮放倍率(設定面板滑桿用);會即時重新佈局。 */
+export function setUserScale(scale: number): void {
+  userScale = Math.max(0.3, Math.min(3, scale));
+  fitModel();
+}
+
+/** 取目前使用者縮放倍率。 */
+export function getUserScale(): number {
+  return userScale;
+}
+
+/**
+ * 角色在畫面上的位置(CSS px):頭頂 y、水平中心 x。給對話泡泡跟著頭定位用。
+ * 沒有模型時回 null(呼叫端退回預設位置)。
+ */
+export function getHeadAnchor(): { x: number; y: number } | null {
+  if (!app || !model) return null;
+  const b = model.getBounds();
+  return { x: b.x + b.width / 2, y: b.y };
 }
 
 /** 點擊反應。回傳 true 代表點中角色(上層據此決定是否顯示台詞)。 */
@@ -186,10 +262,13 @@ export function handleTap(x: number, y: number): boolean {
   if (areas.length === 0 && !inBounds) return false;
 
   if (areas.some((a) => HEAD_AREA.test(a))) {
-    playRandomExpression();
+    // 摸頭 → 開心表情 + 眨眼動作(MeiYan)
+    playExpression(pick(HEAD_REACT_EXPR));
+    playMotionGroup("Tap");
     callbacks.onSay?.(pick(TAP_HEAD_LINES));
   } else {
-    playRandomMotion();
+    // 點身體 → 害羞表情
+    playExpression(pick(BODY_REACT_EXPR));
     callbacks.onSay?.(pick(TAP_BODY_LINES));
   }
   return true;
@@ -221,11 +300,24 @@ function startIdleWatcher(): void {
   idleInterval = window.setInterval(() => {
     if (Date.now() - lastInteraction >= idleMs) {
       markInteraction(); // 重置計時,避免連續觸發
-      playRandomMotion();
-      // 三成機率碎念一句
-      if (Math.random() < 0.3) callbacks.onSay?.(pick(IDLE_LINES));
+      // 閒置小動作:一半機率東張西望(視線飄移)、一半播待機動作
+      if (Math.random() < 0.5) {
+        lookAround();
+      } else {
+        playMotionGroup("Idle");
+      }
+      // 半數機率碎念一句
+      if (Math.random() < 0.5) callbacks.onSay?.(pick(IDLE_LINES));
     }
   }, 30_000);
+}
+
+/** 視線飄到畫面內隨機一點,模擬「東張西望」 */
+function lookAround(): void {
+  if (!model) return;
+  const x = window.innerWidth * (0.25 + Math.random() * 0.5);
+  const y = window.innerHeight * (0.2 + Math.random() * 0.45);
+  gazeAt(x, y);
 }
 
 function playRandomMotion(): void {
@@ -235,6 +327,23 @@ function playRandomMotion(): void {
   ).filter((g) => (model!.internalModel.motionManager.definitions as any)[g]?.length);
   if (groups.length === 0) return;
   void model.motion(pick(groups));
+}
+
+/** 依名稱播放表情(找不到就忽略,不報錯) */
+function playExpression(name: string): void {
+  if (!model) return;
+  try {
+    void model.expression(name);
+  } catch {
+    /* 該模型沒有這個表情就算了 */
+  }
+}
+
+/** 播放指定動作組(該組沒動作就忽略) */
+function playMotionGroup(group: string): void {
+  if (!model) return;
+  const defs = (model.internalModel.motionManager.definitions as any) ?? {};
+  if (defs[group]?.length) void model.motion(group);
 }
 
 function playRandomExpression(): void {
@@ -330,11 +439,27 @@ export function stopLipsync(): void {
 
 let talking = false;
 let mouthNeedsClose = false;
+let swayActive = false;
+let swayFreq = 0; // rad / ms
+let swayNeedsReset = false;
 
 /** TTS 說話中 → 嘴巴開合;結束時自然閉上。 */
 export function setTalking(active: boolean): void {
   if (talking && !active) mouthNeedsClose = true;
   talking = active;
+}
+
+/**
+ * 隨音樂搖擺(Spotify 播放中時)。bpm>0 就對到節奏(一次左右擺約兩拍),
+ * 拿不到 bpm 就用預設 ~96。停止時把身體參數歸位。
+ */
+export function setSway(active: boolean, bpm = 0): void {
+  if (swayActive && !active) swayNeedsReset = true;
+  swayActive = active;
+  if (active) {
+    const eff = bpm > 0 ? bpm : 96;
+    swayFreq = (Math.PI * eff) / 60 / 1000;
+  }
 }
 
 /**
@@ -365,6 +490,16 @@ function hookMouth(): void {
       } else if (mouthNeedsClose) {
         mouthNeedsClose = false;
         setParam.call(core, "ParamMouthOpenY", 0);
+      }
+      // 隨音樂搖擺:這個模型沒有 ParamBody*,改用頭部(轉+傾同相位)做出明顯的跟拍擺動
+      if (swayActive) {
+        const s = Math.sin(now * swayFreq);
+        setParam.call(core, "ParamAngleX", s * 20); // 頭左右轉
+        setParam.call(core, "ParamAngleZ", s * 16); // 頭左右傾(同相位 → 像在打拍子)
+      } else if (swayNeedsReset) {
+        swayNeedsReset = false;
+        setParam.call(core, "ParamAngleX", 0);
+        setParam.call(core, "ParamAngleZ", 0);
       }
     } catch {
       /* 模型缺對應參數也不致命 */

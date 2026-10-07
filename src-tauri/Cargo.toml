@@ -1,6 +1,6 @@
 [package]
 name = "desktop-pet-ai"
-version = "0.1.0"
+version = "0.2.0"
 description = "Live2D 桌面寵物 AI 助理(全本地運算)"
 edition = "2021"
 
@@ -39,6 +39,15 @@ tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
 tauri-plugin-fs = "2.5.1"
 tiny_http = "0.12.0"
+# Discord 串接(用她現有的大腦在指定頻道聊天)
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "rustls_backend", "model", "http", "builder", "cache", "utils"] }
+# Spotify OAuth(PKCE 需 SHA256 + 隨機)
+sha2 = "0.10"
+getrandom = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+# 桌面霸權術:列舉/最小化/還原其他 App 視窗
+windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
 
 [profile.release]
 panic = "abort"

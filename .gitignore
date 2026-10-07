@@ -23,3 +23,28 @@ IceGirl_Live2d/
 # 其他
 *.log
 .DS_Store
+
+# 簽章金鑰(GitHub Actions 只經 secrets 取得,永遠不可進版控)
+*.key
+*.key.pub
+*.password.txt
+.env
+.env.*
+update-signing/
+
+# Synology Drive 同步夾(內含 Drive 自己的中繼資料,絕不可進版控)
+SynologyDrive/
+.SynologyWorkingDirectory/
+
+# 根目錄的其他無關專案(各自有自己的 .git)
+livestream-ai/
+
+# 建置暫存(我先前測試留下的)
+.build-target/
+
+# Windows 資料夾檢視設定
+desktop.ini
+
+# 測試用 log(補強,原本只擋 *.log)
+app-*.log
+tauri-dev*.log

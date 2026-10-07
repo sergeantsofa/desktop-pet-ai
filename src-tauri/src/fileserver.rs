@@ -39,22 +39,24 @@ pub fn start(root: PathBuf) -> std::io::Result<u16> {
 
 fn handle(req: tiny_http::Request, root: &Path) {
     let cors = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
-    match resolve(root, req.url()) {
-        Some(path) => match fs::read(&path) {
-            Ok(bytes) => {
-                let ct = content_type(&path);
-                let ctype = Header::from_bytes(&b"Content-Type"[..], ct.as_bytes()).unwrap();
-                let resp = Response::from_data(bytes).with_header(ctype).with_header(cors);
-                let _ = req.respond(resp);
-            }
-            Err(_) => {
-                let _ = req.respond(Response::from_string("not found").with_status_code(404).with_header(cors));
-            }
-        },
+    match read_file(root, req.url()) {
+        Some((bytes, ct)) => {
+            let ctype = Header::from_bytes(&b"Content-Type"[..], ct.as_bytes()).unwrap();
+            let resp = Response::from_data(bytes).with_header(ctype).with_header(cors);
+            let _ = req.respond(resp);
+        }
         None => {
-            let _ = req.respond(Response::from_string("bad path").with_status_code(403).with_header(cors));
+            let _ = req.respond(Response::from_string("not found").with_status_code(404).with_header(cors));
         }
     }
+}
+
+/// 解析 URL → 讀檔 → (bytes, content-type)。防目錄穿越、且必須落在 root 內。
+/// 供本機 fileserver 與區網 remote 共用(remote 用同一份 appdata root serve /models 與 /vendor)。
+pub fn read_file(root: &Path, url: &str) -> Option<(Vec<u8>, &'static str)> {
+    let path = resolve(root, url)?;
+    let bytes = fs::read(&path).ok()?;
+    Some((bytes, content_type(&path)))
 }
 
 /// 解析 URL → root 內的真實檔案路徑;防目錄穿越,且必須落在 root 內。
