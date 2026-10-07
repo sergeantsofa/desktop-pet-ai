@@ -45,7 +45,13 @@ import {
   DEFAULT_FISH_API_URL,
   type TtsSettings,
 } from "../speech/tts";
-import { speechStatus, synthesizeFish, type SpeechStatus } from "../speech/native";
+import {
+  speechStatus,
+  setupSpeech,
+  synthesizeFish,
+  type SpeechStatus,
+  type SpeechSetupProgress,
+} from "../speech/native";
 import { loadBehavior, saveBehavior, type BehaviorSettings } from "../behavior";
 import {
   loadCharacters,
@@ -170,6 +176,43 @@ const winW = ref(0);
 const winH = ref(0);
 const bubbleStyle = ref(loadBubbleStyle());
 const bubblePreviewText = "嗨~這是我說話的樣子!";
+
+/* ---------- 離線語音元件一鍵安裝 ---------- */
+const speechBusy = ref(false);
+const speechMsg = ref("");
+const speechDone = ref(0);
+const speechTotal = ref(0);
+const whisperModel = ref("base");
+
+const speechPercent = computed(() => {
+  if (speechTotal.value <= 0) return 0;
+  return Math.min(100, Math.round((speechDone.value / speechTotal.value) * 100));
+});
+
+async function onSetupSpeech(withWhisper: boolean, withPiper: boolean): Promise<void> {
+  if (speechBusy.value) return;
+  speechBusy.value = true;
+  speechMsg.value = "準備中…";
+  speechDone.value = 0;
+  speechTotal.value = withWhisper && withPiper ? 4 : withWhisper ? 2 : 2;
+  try {
+    const summary = await setupSpeech(
+      { whisper: withWhisper, piper: withPiper, whisperModel: whisperModel.value },
+      (p: SpeechSetupProgress) => {
+        speechDone.value = p.done;
+        speechTotal.value = p.total;
+        speechMsg.value = p.label;
+      }
+    );
+    speechMsg.value = `✅ 完成\n${summary}`;
+    // 重讀狀態,讓上面的「未安裝」變成 ✅
+    if (isTauri) speech.value = await speechStatus();
+  } catch (err) {
+    speechMsg.value = `❌ 安裝失敗:${err instanceof Error ? err.message : String(err)}`;
+  } finally {
+    speechBusy.value = false;
+  }
+}
 
 /* ---------- 關於 / 更新 ---------- */
 const appVersion = ref("");
@@ -1099,9 +1142,56 @@ async function onRefreshPersona(): Promise<void> {
                 <p v-if="speech" class="hint">
                   Piper:{{ speech.piper ? `✅ ${speech.piperVoice}` : "未安裝" }}/
                   Whisper(語音輸入 Ctrl+Shift+S):{{ speech.whisper ? `✅ ${speech.whisperModel}` : "未安裝" }}
-                  <br />
-                  未安裝時執行 scripts\setup-speech.ps1 自動下載(語音輸入退回不可用、朗讀退回系統語音)。
                 </p>
+
+                <!-- 離線語音元件一鍵安裝(安裝版使用者沒有 setup-speech.ps1,只能靠這個) -->
+                <div class="speech-setup">
+                  <div class="speech-setup-head">
+                    <b>離線語音元件</b>
+                    <span class="dim">語音輸入需要 Whisper;高品質朗讀需要 Piper</span>
+                  </div>
+                  <div class="upd-actions">
+                    <button
+                      class="primary"
+                      :disabled="speechBusy"
+                      @click="onSetupSpeech(true, true)"
+                    >
+                      <template v-if="speechBusy">安裝中…</template>
+                      <template v-else>⬇️ 一鍵安裝(Whisper + Piper)</template>
+                    </button>
+                    <button class="action" :disabled="speechBusy" @click="onSetupSpeech(true, false)">
+                      只裝語音輸入
+                    </button>
+                  </div>
+                  <label class="speech-model">
+                    Whisper 模型(越大越準、越慢)
+                    <select v-model="whisperModel" :disabled="speechBusy">
+                      <option value="tiny">tiny(最快,約 75MB)</option>
+                      <option value="base">base(推薦,約 148MB)</option>
+                      <option value="small">small(較準,約 488MB)</option>
+                      <option value="medium">medium(最準,約 1.5GB)</option>
+                    </select>
+                  </label>
+                  <div v-if="speechBusy" class="upd-progress">
+                    <div class="upd-bar">
+                      <div
+                        class="upd-bar-fill"
+                        :style="{ width: speechPercent + '%' }"
+                      />
+                    </div>
+                    <span class="upd-bytes">
+                      {{ speechMsg }}({{ speechDone }}/{{ speechTotal }})
+                    </span>
+                  </div>
+                  <p v-else-if="speechMsg" class="hint ok" style="white-space: pre-line">
+                    {{ speechMsg }}
+                  </p>
+                  <p class="hint">
+                    會下載到 <code>%APPDATA%\com.desktoppet.ai\speech\</code>。
+                    裝好後 <b>Ctrl+Shift+S</b> 就能用語音輸入;朗讀也會改用 Piper(設定可切回系統語音)。
+                    沒裝也能用:朗讀會退回 Edge / 系統語音,只有語音輸入需要 Whisper。
+                  </p>
+                </div>
                 <label v-if="tts.engine === 'system'">
                   系統語音
                   <select v-model="tts.voice">
@@ -1556,6 +1646,23 @@ async function onRefreshPersona(): Promise<void> {
 }
 .backup-list li {
   font-size: 12px;
+}
+/* ---------- 離線語音元件安裝 ---------- */
+.speech-setup {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid #cdd9f0;
+  border-radius: 8px;
+  background: #f6f9ff;
+}
+.speech-setup-head {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 8px;
+}
+.speech-model {
+  display: block;
+  margin-top: 8px;
 }
 .tabs {
   width: 124px;

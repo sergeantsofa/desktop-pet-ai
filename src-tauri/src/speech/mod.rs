@@ -1,9 +1,15 @@
 //! M2 後半:語音 sidecar 管理(Piper TTS / Whisper.cpp STT)。
 //!
-//! 二進位與模型放在 app_data_dir/speech/(scripts/setup-speech.ps1 可自動下載):
+//! 二進位與模型放在 app_data_dir/speech/:
 //!   speech/piper/piper.exe + <語音>.onnx(+ 同名 .onnx.json)
 //!   speech/whisper/whisper-cli.exe(或舊版 main.exe)+ ggml-*.bin
+//!
+//! 取得方式(任一):
+//!   1. 設定面板的「一鍵安裝語音元件」(走 [`setup`] 模組,安裝版使用者用這個)
+//!   2. `scripts\setup-speech.ps1`(從原始碼開發時方便)
 //! 找不到時前端自動退回 Web Speech API(speechSynthesis)。
+
+pub mod setup;
 
 use base64::Engine as _;
 use serde::Serialize;
@@ -112,7 +118,8 @@ pub async fn tts_synthesize(
     length_scale: Option<f32>,
 ) -> Result<tauri::ipc::Response, String> {
     let dir = speech_dir(&app)?;
-    let exe = piper_exe(&dir).ok_or("找不到 piper.exe(請執行 scripts\\setup-speech.ps1)")?;
+    let exe = piper_exe(&dir)
+        .ok_or("找不到 piper.exe。請到「設定 → 語音」按「一鍵安裝語音元件」,或把 piper 放進 speech\\piper\\")?;
     let voice = piper_voice(&dir).ok_or("找不到 Piper 語音模型(.onnx)")?;
     let ls = length_scale.unwrap_or(1.0).clamp(0.5, 2.0);
 
@@ -285,9 +292,12 @@ mod tests {
 #[tauri::command]
 pub async fn stt_transcribe(app: AppHandle, wav_b64: String) -> Result<String, String> {
     let dir = speech_dir(&app)?;
-    let exe = whisper_exe(&dir)
-        .ok_or("找不到 whisper-cli.exe(請執行 scripts\\setup-speech.ps1)")?;
-    let model = whisper_model(&dir).ok_or("找不到 Whisper 模型(ggml-*.bin)")?;
+    let exe = whisper_exe(&dir).ok_or(
+        "找不到 whisper-cli.exe。請到「設定 → 語音」按「一鍵安裝語音元件」,或把 whisper.cpp 放進 speech\\whisper\\",
+    )?;
+    let model = whisper_model(&dir).ok_or(
+        "找不到 Whisper 模型(ggml-*.bin)。請到「設定 → 語音」按「一鍵安裝語音元件」",
+    )?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(wav_b64)
         .map_err(|e| format!("音訊解碼失敗:{e}"))?;

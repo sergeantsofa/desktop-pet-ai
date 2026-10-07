@@ -66,3 +66,7 @@ desktop.ini
 # 測試用 log(補強,原本只擋 *.log)
 app-*.log
 tauri-dev*.log
+
+# 臨時測試資料夾
+_sptest/
+_diag/

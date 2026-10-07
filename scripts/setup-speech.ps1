@@ -1,4 +1,4 @@
-﻿# =====================================================
+# =====================================================
 # Desktop Pet AI — 語音 sidecar 一鍵安裝(M2)
 #   Piper TTS(高品質中文語音 + 真實對嘴)
 #   Whisper.cpp STT(Ctrl+Shift+S 語音輸入)
@@ -20,8 +20,14 @@ $whisperDir = Join-Path $speechDir "whisper"
 New-Item -ItemType Directory -Force -Path $piperDir, $whisperDir | Out-Null
 
 function Get-LatestAsset($repo, $namePattern) {
-    $rel = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"
-    return $rel.assets | Where-Object name -match $namePattern | Select-Object -First 1
+    # ⚠️ 不能只看 releases/latest:whisper.cpp 的正式版常常「有版號但沒有 asset」
+    #(例如 v1.9.5),那會讓這裡找不到東西。所以往回找幾版,挑第一個真的有符合 asset 的。
+    $rels = Invoke-RestMethod "https://api.github.com/repos/$repo/releases?per_page=20"
+    foreach ($rel in $rels) {
+        $hit = $rel.assets | Where-Object name -match $namePattern | Select-Object -First 1
+        if ($hit) { return $hit }
+    }
+    return $null
 }
 
 # 用 Windows 內建 curl.exe 下載(PS 5.1 的 Invoke-WebRequest 對 HuggingFace 轉址會出錯)
@@ -73,8 +79,8 @@ if ($hasWhisper) {
     Write-Host "已安裝:whisper-cli.exe / main.exe"
 } else {
     $asset = Get-LatestAsset "ggml-org/whisper.cpp" "bin-x64\.zip$"
-    if (-not $asset) { throw "在 ggml-org/whisper.cpp releases 找不到 Windows 套件,請手動下載放入 $whisperDir" }
-    Write-Host "下載 $($asset.name)…"
+    if (-not $asset) { throw "在 ggml-org/whisper.cpp releases 找不到 Windows 套件(whisper-bin-x64.zip),請手動下載放入 $whisperDir" }
+    Write-Host "下載 $($asset.name)(來自 $($asset.browser_download_url))…"
     try {
         Install-FromZip $asset.browser_download_url "whisper-cli.exe" $whisperDir
     } catch {

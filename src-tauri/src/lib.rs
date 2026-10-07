@@ -152,6 +152,7 @@ pub fn run() {
             llm::vision_chat,
             llm::vision_chat_file,
             speech::speech_status,
+            speech::setup::setup_speech,
             speech::tts_synthesize,
             speech::tts_edge,
             speech::tts_fish,
