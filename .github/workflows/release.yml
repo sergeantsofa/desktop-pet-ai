@@ -52,6 +52,25 @@ jobs:
           }
           Write-Host "✅ 版本號一致:$tauri"
 
+      # 把 RELEASE_NOTES.md 讀進 step output。
+      # 注意兩點:
+      #  1. tauri-action 的 releaseBody 不會把 "./檔名" 當成檔案路徑讀
+      #     (v0.2.0 實測會原樣變成字面上的 "./RELEASE_NOTES.md"),所以要自己讀。
+      #  2. GITHUB_OUTPUT 不接受 BOM,也不能用 Out-File -Encoding utf8(會加 BOM),
+      #     所以這裡用 .NET 明確寫「無 BOM 的 UTF-8」。
+      - name: 讀取 Release Notes
+        id: notes
+        shell: pwsh
+        run: |
+          $text = (Get-Content RELEASE_NOTES.md -Raw) -replace "`r`n", "`n"
+          $utf8 = [System.Text.UTF8Encoding]::new($false)   # false = 不加 BOM
+          $sb = [System.Text.StringBuilder]::new()
+          [void]$sb.Append("body<<__NOTES_EOF__`n")
+          [void]$sb.Append($text)
+          [void]$sb.Append("`n__NOTES_EOF__`n")
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, $sb.ToString(), $utf8)
+          Write-Host "Release notes 長度: $($text.Length) 字元"
+
       - name: Build, sign & publish
         uses: tauri-apps/tauri-action@v0
         env:
@@ -61,7 +80,17 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Desktop Pet AI ${{ github.ref_name }}"
-          # 更新說明直接讀專案內的 RELEASE_NOTES.md,改文案不用動 workflow
-          releaseBody: "./RELEASE_NOTES.md"
+          # 更新說明取自上面讀進來的 RELEASE_NOTES.md,改文案不用動 workflow
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
+
+      # 保險:tauri-action 發布後再把說明覆寫一次。
+      # 這樣即使 releaseBody 沒吃到多行 output,Release 頁上的說明仍然是正確的。
+      - name: 確保 Release 說明正確
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ github.ref_name }}" --notes-file RELEASE_NOTES.md
+          Write-Host "✅ Release 說明已更新自 RELEASE_NOTES.md"
