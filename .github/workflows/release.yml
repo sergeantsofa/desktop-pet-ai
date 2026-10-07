@@ -2,10 +2,19 @@ name: release
 
 # 推一個 v* 的 tag 就自動編譯、簽章、發布到 GitHub Releases,
 # 並產生 latest.json 供 App 自動更新偵測。
+#
+# 也可以手動觸發(Actions → release → Run workflow),
+# 只更新某個既有 release 的說明文字 —— 改錯字不必重新編譯 15 分鐘。
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要更新 Release 說明的 tag(例如 v0.2.2)"
+        required: true
+        type: string
 
 jobs:
   release:
@@ -14,26 +23,43 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      # 手動觸發時:只覆寫 Release 說明就結束,不重編、不重簽、不動 assets
+      - name: 只更新 Release 說明
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ github.event.inputs.tag }}" --notes-file RELEASE_NOTES.md
+          Write-Host "已更新 ${{ github.event.inputs.tag }} 的說明"
 
       - name: Setup Node
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: Setup Rust
+        if: github.event_name != 'workflow_dispatch'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
+        if: github.event_name != 'workflow_dispatch'
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
 
       - name: Install frontend deps
+        if: github.event_name != 'workflow_dispatch'
         run: npm ci
 
       # 版本號三處必須一致,且要跟推上來的 tag 對得起來。
       # 不一致就當場失敗 —— 免得上線後 App 的更新比對基準(tauri.conf.json)是錯的。
       - name: 檢查版本號一致性
+        if: github.event_name != 'workflow_dispatch'
         shell: pwsh
         run: |
           $pkg     = (Get-Content package.json -Raw | ConvertFrom-Json).version
@@ -56,6 +82,7 @@ jobs:
       # v0.2.0 就是少了這些,CI 編出 4.3MB 的安裝檔(正常應為 23.9MB),
       # 使用者裝完「可以開但沒有角色」。寧可讓建置失敗,也不要再發布半殘的安裝檔。
       - name: 檢查打包資產是否齊全
+        if: github.event_name != 'workflow_dispatch'
         shell: pwsh
         run: |
           $required = @(
@@ -92,6 +119,7 @@ jobs:
       #  2. GITHUB_OUTPUT 不接受 BOM,也不能用 Out-File -Encoding utf8(會加 BOM),
       #     所以這裡用 .NET 明確寫「無 BOM 的 UTF-8」。
       - name: 讀取 Release Notes
+        if: github.event_name != 'workflow_dispatch'
         id: notes
         shell: pwsh
         run: |
@@ -105,6 +133,7 @@ jobs:
           Write-Host "Release notes 長度: $($text.Length) 字元"
 
       - name: Build, sign & publish
+        if: github.event_name != 'workflow_dispatch'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -121,6 +150,7 @@ jobs:
       # 保險:tauri-action 發布後再把說明覆寫一次。
       # 這樣即使 releaseBody 沒吃到多行 output,Release 頁上的說明仍然是正確的。
       - name: 確保 Release 說明正確
+        if: github.event_name != 'workflow_dispatch'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
