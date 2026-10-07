@@ -1,255 +1,158 @@
-# Desktop Pet AI — Live2D 桌面寵物 AI 助理
+# Desktop Pet AI v0.2.0 — 霓離,回來了
 
-Windows 桌面常駐的 Live2D 虛擬人助理,全本地運算優先。本倉庫目前完成 **M0 骨架 + M1 對話核心 + M2 語音(TTS/STT/對嘴)+ M3 前半(Agent 工具呼叫)+ M4 長期記憶**。
-
-> 你是**想直接使用**的一般使用者?看下面〈🐾 使用者安裝指南〉。
-> 你是**想改程式碼**的開發者?跳到〈環境需求〉與〈安裝與啟動(開發者)〉。
-> 卡關時,可以把這份 README 連同你遇到的畫面/錯誤訊息一起貼給 ChatGPT / Claude,請它一步步帶你做。
+> 這是自 v0.1.2 之後累積三個多月的大版本:從「會聊天的桌寵」長成
+> **會自己學習、自己改進、自己照顧你的具身陪伴**。
 
 ---
 
-## 🐾 使用者安裝指南(下載安裝版)
+## ⚠️ 請先讀:這一版需要手動安裝一次
 
-> 為什麼要「自備素材」:Live2D 的 **Cubism Core** 與 **模型** 受各自授權保護,**不能**隨安裝包散布,所以需要你自己放進去。下面每一步都有連結與確切路徑,照做即可。
+**v0.1.0 ~ v0.1.2 無法自動更新到 v0.2.0。**
 
-### 步驟 0:系統需求
-- **Windows 10 / 11**(64 位元)。
-- 安裝時若缺 **WebView2**,安裝程式會自動下載安裝(需網路);Windows 11 已內建。
+原因是舊版的更新簽章私鑰已遺失,無法再簽出舊版能通過驗證的更新檔,因此換了一把全新的簽章金鑰。
+舊版內嵌的是舊公鑰,驗不過新簽章 —— 這是**一次性**的:
 
-### 步驟 1:下載安裝
-1. 到 **[Releases 頁面](https://github.com/sergeantsofa/desktop-pet-ai/releases/latest)** 下載 `DesktopPetAI_x.x.x_x64-setup.exe`。
-2. 雙擊安裝、開啟。第一次會看到一個 `(。・ω・。)` 引導畫面(因為還沒有角色),這是正常的。
-
-### 🚀 最快:一鍵下載範例角色(開箱即用)
-在引導畫面點 **「✨ 一鍵下載範例角色」**,App 會自動從官方來源下載 Cubism Core + 一個免費範例角色(Haru),裝好後角色就會出現——**不用手動找檔案**。
-之後只要[給她大腦(步驟 5)](#步驟-5給她大腦必要否則只能點擊互動不能聊天)就能聊天了。
-
-> 想用**自己的** Live2D 模型?往下看步驟 2~4 手動放置。
-
----
-
-### 步驟 2:打開放素材的資料夾(想用自己的模型才需要)
-- 在引導畫面點 **「📁 開啟資料夾」** 按鈕。它會開啟並建立:
-  ```
-  %APPDATA%\com.desktoppet.ai\
-  ├─ models\    ← 放模型 + characters.json
-  └─ vendor\    ← 放 Cubism Core
-  ```
-  (`%APPDATA%` 通常是 `C:\Users\你的帳號\AppData\Roaming`)
-
-### 步驟 3:放 Cubism Core(必要)
-1. 到 **[Live2D Cubism SDK for Web](https://www.live2d.com/sdk/download/web/)** 下載 SDK(下載即代表同意其授權)。
-2. 解壓後找到 `Core\live2dcubismcore.min.js`。
-3. 把它複製到 `vendor\` 資料夾,最後長這樣:
-   ```
-   vendor\live2dcubismcore.min.js
-   ```
-
-### 步驟 4:放 Live2D 模型(必要)
-1. 準備一個你**自有或已授權**的 Live2D 模型(要含 `.model3.json`、`.moc3`、材質等整包)。
-   - 找免費模型可從 [Live2D 官方免費素材](https://www.live2d.com/zh-CHT/learn/sample/)(受 Free Material License 約束)。
-2. 把整個模型資料夾放進 `models\`,例如:
-   ```
-   models\mygirl\mygirl.model3.json
-   models\mygirl\mygirl.moc3
-   models\mygirl\... (材質、表情、動作)
-   ```
-3. 在 `models\` 建立一個 `characters.json`(可參考倉庫的 [`characters.example.json`](public/models/characters.example.json)),最小範例:
-   ```json
-   {
-     "active": "mygirl",
-     "characters": [
-       { "id": "mygirl", "name": "我的角色", "path": "mygirl/mygirl.model3.json", "scale": 1.0 }
-     ]
-   }
-   ```
-   > `path` 是相對 `models\` 的路徑。`emotions` / `fixedParams` 為進階選填(情緒表情映射、關掉多餘部件),可先省略。
-4. **重新啟動 App** → 角色就會出現。
-
-### 步驟 5:給她大腦(必要,否則只能點擊互動、不能聊天)
-二擇一:
-- **本地、免費(推薦)**:安裝 [Ollama](https://ollama.com),然後開命令列執行:
-  ```powershell
-  winget install Ollama.Ollama
-  ollama pull qwen2.5:3b
-  ```
-  App 預設就會找本地 Ollama,裝好即可用。
-- **雲端(要付費 API)**:托盤右鍵 → 設定 → 填入 **DeepSeek API Key**([申請](https://platform.deepseek.com))。
-
-完成後按 `Ctrl+Shift+A` 就能跟她聊天了。
-
-### 步驟 6:語音(選用)
-- **朗讀**:預設使用微軟 Edge 神經語音(免安裝、需網路),開箱就有聲音;可在設定切換聲線或改用系統語音。
-- **語音輸入(對她說話)/ 全離線 Piper 語音**:需要額外的 Whisper / Piper 元件。目前自動安裝腳本(`setup-speech.ps1`)需從原始碼取得;若你不熟,先用文字聊天即可。
-
-### 常見問題
-| 症狀 | 原因 / 解法 |
+| 你現在的版本 | 要做的事 |
 |---|---|
-| 只有 `(。・ω・。)` 引導畫面 | 還沒放 Cubism Core 或模型(步驟 3、4),放好後重啟 |
-| 打字她不回應 / 說「腦袋連不上」 | 還沒裝大腦(步驟 5);本地請確認 Ollama 有在執行 |
-| 朗讀沒聲音 | 設定 → 語音,確認沒靜音;Edge 語音需要網路 |
-| 有新版本提示 | 點「更新」她會自動下載安裝並重啟 |
+| v0.1.0 / v0.1.1 / v0.1.2 | 下載下面的 `DesktopPetAI_0.2.0_x64-setup.exe` **手動安裝一次** |
+| v0.2.0 之後 | 不用管了,**自動更新已全面接上**(下載→安裝→重啟全自動) |
+
+從這一版開始,之後的更新都會自動完成。
 
 ---
 
-## 目前進度
+## 🆕 這一版多了什麼
 
-- ✅ Tauri v2 + Vue 3 + Vite 專案骨架
-- ✅ 透明無邊框、always-on-top、無陰影視窗
-- ✅ 拖曳角色移動 + 位置記憶(重啟還原)
-- ✅ 系統托盤:顯示/隱藏、點擊穿透、靜音、設定(占位)、結束
-- ✅ 全域快捷鍵 `Ctrl+Shift+A` 喚出/收合對話輸入框(M0 為占位回應)
-- ✅ Live2D 模型載入與渲染(pixi.js v7 + pixi-live2d-display-lipsyncpatch)
-- ✅ 互動:點頭部摸頭表情、點身體隨機台詞/動作、視線追蹤、閒置小動作
-- ✅ M1:Provider 抽象層(OpenAI 相容)— Ollama + DeepSeek、任務路由(閒聊/寫程式/推理)
-- ✅ M1:SSE 串流輸出、雲端失敗自動降級本地(角色口頭告知)
-- ✅ M1:人設系統、情緒標籤 `[happy]` 等 → Live2D 表情/動作(可在 active.json 自訂映射)
-- ✅ M1:設定面板(人設、路由、降級開關、保留輪數)、DeepSeek Key 存 Windows 認證管理員
-- ✅ M1:啟動健康檢查(Ollama 未運行時給安裝指引)
-- ✅ M1.5:取消生成(思考中送新訊息會打斷舊回應)、智慧點擊穿透(游標不在角色上自動穿透)
-- ✅ M2 前半:TTS 朗讀 AI 回覆(WebView2 內建 speechSynthesis,免 sidecar)+ 正弦口型同步;設定面板可選語音/語速/音量
-- ✅ M2 後半:Piper 高品質 TTS(`model.speak()` 真實波形對嘴)+ Whisper.cpp 語音輸入(`Ctrl+Shift+S`);sidecar 缺席時自動退回系統語音、`scripts\setup-speech.ps1` 一鍵安裝
-- ✅ M2.5:Edge 神經網路語音(msedge-tts,免金鑰、曉伊/曉曉/曉臻等甜美聲線、MP3 對嘴);引擎鏈 Edge → Piper → 系統逐級退回,設定面板可選聲線
-- ✅ M3 前半:Agent 工具呼叫(OpenAI function calling、串流 tool_calls 解析、多輪工具迴圈)+ 權限分級(唯讀自動;開網頁/雲端讀剪貼簿先跳確認卡片,60 秒未回應視同拒絕)。內建工具:查時間、讀剪貼簿、開網頁、看系統狀態
-- ✅ M4 長期記憶:SQLite(`%APPDATA%\com.desktoppet.ai\memory.db`)。她用 save_memory / search_memory / forget_memory 工具自主記憶,最近 30 條注入 system prompt;對話紀錄落地、重啟自動接上;設定面板可一鍵清除
-- ✅ M4.5 主動行為:提醒(set/list/cancel_reminder 工具 + scheduler 每 20 秒檢查,到期主動跳視窗+朗讀;關閉期間錯過的開機補發)+ 閒置主動找話題(可在設定開關/調閒置分鐘數);主動發話走 persist=false 不污染對話紀錄
-- ✅ M5 視覺(看截圖):`Ctrl+Shift+V` / 托盤截取主螢幕(截圖前自動隱藏自己、縮到 1366px)→ 本地視覺模型(預設 ollama `qwen2.5vl:3b`,設定 → 任務路由「看圖」可換)→ 看圖並評論;走 OpenAI 多模態 image_url 格式,結果不落對話紀錄
-- ✅ M5.5 截圖資料夾監看(可開關):監看 `Pictures\Screenshots`(可改路徑),一截圖(Win+PrtScn)就自動讀圖評論。Rust `notify` 監看 + 同檔 5 秒去重;設定 → 主動行為 開關
-- ⬜ M3 後半:寫入類工具(寫檔、執行指令)+ 沙箱
-- ⬜ M4.6:記憶向量檢索(語意搜尋舊記憶)
+### 🔒 自我修改變成「可信任」的(最核心的改變)
 
-## 環境需求(開發者,從原始碼建置)
+她可以讀、改自己的原始碼 —— 但現在有一整套護欄:
 
-> 只想使用、不改程式碼的話不需要這些,看上面〈🐾 使用者安裝指南〉即可。
+- **編譯閘**:改完自動驗證(`.ts/.vue` 跑型別檢查、`.rs` 跑 `cargo check`、`.json` 驗格式),
+  **沒過就自動精準還原那一個檔**,不會誤刪其他東西。
+- **成長日誌 `self-evolution.md`**:每次保留下來的修改都會留一條記錄,你能一頁看完她最近變成什麼樣。
+- **還原點面板**:設定裡的「時間軸」可挑任一個還原點回復(還原前會自動再快照,可以再還原回來)。
+- **修改禁區**:護欄本身、金鑰、工具權限核心禁止她自我修改。
 
-1. **Node.js** 20+
-2. **Rust**(stable,經 [rustup](https://rustup.rs) 安裝)
-3. **Visual Studio Build Tools**(含「使用 C++ 的桌面開發」工作負載)
-4. **WebView2 Runtime**(Windows 11 內建)
+### 🧠 記憶:從「關鍵字」進化到「真的記得你」
 
-## 安裝與啟動(開發者)
+- **語意檢索**:改用 embedding 語意搜尋(本地 Ollama),問「我上次說我喜歡什麼」真的答得出來,
+  不再只靠字面關鍵字。**抓不到嵌入模型時自動退回關鍵字**,不會壞掉。
+- **記憶分層**:記憶有重要度(1~5)與分類(事實/偏好/關係/事件),檢索時綜合
+  「語意相似度 × 重要度 × 時間衰減」排序 —— 重要的事不會被時間沖淡。
+- **人格摘要「她眼中的你」**:用對話模型蒸餾出她對你的理解,隨相處持續更新,注入每一條對話路徑。
+- **記憶分區**:桌面是主人(`owner`)、網頁各帳號各自私密 + `shared` 共用。
 
-**懶人包**:`powershell -ExecutionPolicy Bypass -File scripts\setup.ps1` 會自動安裝 Node / Rust / VS Build Tools、執行 npm install,並引導下載 Cubism Core。
+### 🌐 區網遠端:手機、平板、別台電腦都能找她
 
-手動安裝:
+- 同網段用瀏覽器打開就能聊天,**右側還有 Live2D 角色**(點頭、點身、閒置動作、視線追蹤、講話對嘴)。
+- **聽得見她的聲音**:遠端用同一套 Edge 甜美語音,MP3 真實對嘴。
+- **手機完整適配**:響應式排版、觸控、音訊解鎖、靜音鈕。
+- **帳號認證 + 一次性邀請碼**:不是誰連上都能跟她聊;主人產生邀請碼,對方自助註冊。
+- **每人各自的個人設定**:角色大小、泡泡樣式、語音聲線語速、人設、遊戲知識庫開關都存在伺服器跟著帳號走。
 
-```powershell
-cd desktop-pet-ai
-npm install
+### 🔊 語音:四段引擎鏈,永遠有聲音
 
-# 1) 放置 Cubism Core(必要,授權因素不可隨倉庫散布)
-#    從 https://www.live2d.com/sdk/download/web/ 下載 SDK,
-#    將 Core/live2dcubismcore.min.js 複製到 public/vendor/
+**Fish Speech(本地 AI 語音)→ Edge 神經語音 → Piper → 系統語音**,逐級自動退回。
 
-# 2) 放置 Live2D 模型(必要)
-#    將模型資料夾放入 public/models/<角色名>/,
-#    並建立 public/models/active.json(參考 active.example.json)
+- Edge 語音免安裝、免金鑰,曉伊/曉曉等聲線開箱就有。
+- Fish Speech 本地高品質 AI 語音,可一鍵自動啟動(設定面板有 🩺 診斷按鈕,看得到真實錯誤)。
+- **免持連續對話 `Ctrl+Shift+D`**:麥克風持續開著,你一開口她立刻閉嘴,講完自動接話。
 
-# 3) 對話腦袋(二擇一或都要)
-#    本地:winget install Ollama.Ollama && ollama pull qwen2.5:7b
-#    雲端:托盤 → 設定 → 填入 DeepSeek API Key
+### ✨ 她更像「住在那裡」
 
-# 4) 語音(選用):Piper TTS + Whisper 語音輸入
-#    powershell -ExecutionPolicy Bypass -File scripts\setup-speech.ps1
-#    沒裝也能用:朗讀自動退回 Windows 系統語音,只有語音輸入需要 Whisper
+- **對話泡泡跟著角色頭頂**(視窗改大也不會脫節),退場是往上飄 + 淡出。
+- **8 種泡泡樣式**(經典白/雲朵/漫畫框/霓虹發光/粉彩漸層/像素風/糖果/透明玻璃),即時預覽。
+- **講話會飄星星愛心**、**跟 Spotify 音樂搖頭晃腦**。
+- **時間感 + 作息感知**:她知道現在幾點、星期幾,會依你的作息判斷該不該吵你。
+- **主動行為**:到點提醒(**關機期間錯過的會在開機補發**)、閒置主動找你聊天。
+- **看螢幕 `Ctrl+Shift+V`**:截圖前自動把自己藏起來,交給本地視覺模型看圖評論;也能監看截圖資料夾自動評論。
 
-# 開發模式
-npm run tauri dev
+### 🎮 遊戲知識庫模式
 
-# 建置 Windows 安裝包(NSIS,輸出於 src-tauri/target/release/bundle/nsis/)
-npm run tauri build
-```
+開啟後她**只用你教過的知識回答**,答案不在庫裡就誠實說不知道,**絕不用常識編造**。
+教學方式:對話打「`教:○○○`」,或用設定面板的表單。遠端網頁與 Discord 也走同一套嚴格問答。
 
-> 未放置 Cubism Core 或模型時,App 仍可啟動,會顯示引導畫面。
+### 🔗 連動與其他
 
-## 自動更新
+- **Discord**:Bot 在指定頻道跟你聊,每頻道各自歷史,可寫長期記憶,桌面會冒泡泡。
+- **Spotify**:OAuth PKCE 連結,放歌/暫停/上下首/音量,自動選裝置。
+- **任務自動分流**:打字會自動判斷是閒聊/寫程式/推理,各自指定模型(設定面板改成下拉選模型)。
+- **桌面霸權術**:一句話清空桌面 / 原樣復原。
+- **對話泡泡會等語音真的講完才消失**(以前用字數估時,常常語音還沒完泡泡就不見了)。
+- **emoji 不再被唸出名字**:朗讀時換成情緒語氣詞(😄→哈哈),畫面顯示不變。
+- **設定改成獨立視窗 + 分頁分類**,不再擠在角色身上。
+- **視窗大小與角色大小都可調**(設定面板),角色視窗大小會記憶。
 
-App 啟動時會靜默檢查 GitHub Releases,有新版本就由桌寵主動提示、可一鍵下載安裝並自動重啟(Tauri updater,更新包經 Ed25519 簽章驗證)。
+### 🔄 線上更新(這一版的重點基礎建設)
 
-### 發布新版(維護者)
+- 設定 →「**關於・更新**」分頁:**檢查更新**、目前版本、下載進度條、**明確的錯誤訊息**
+  (以前失敗是靜默的,分不出「已最新」和「連不上」)。
+- **全自動更新**:發現新版就自動下載 → 安裝 → 重啟。
+- **24 小時節流**:不會一直打 GitHub。
+- **更新代理欄位**:連不上 GitHub 的環境可填 proxy。
+- **更新前自動備份(新)**:更新前先把記憶/設定/模型快照到 `backups\`(保留最近 3 份),
+  新版有問題時覆蓋回去就能回到原狀。設定面板可手動立即備份。
 
-1. 一次性設定 GitHub Secrets(在 repo → Settings → Secrets and variables → Actions):
-   - `TAURI_SIGNING_PRIVATE_KEY`:簽章私鑰內容(`~/.tauri/desktop-pet-ai.key` 的內容)
-   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`:產生金鑰時設定的密碼
-2. 把 `tauri.conf.json` 的 `plugins.updater.endpoints` 內 `__OWNER__/__REPO__` 換成你的 GitHub 帳號/倉庫名。
-3. 改好程式、把 `tauri.conf.json` 與 `package.json` 的 `version` 升版,然後推一個對應 tag:
-   ```bash
-   git tag v0.2.0 && git push origin v0.2.0
-   ```
-4. GitHub Actions(`.github/workflows/release.yml`)會自動編譯、簽章、建立 Release 並產生 `latest.json`。使用者的 App 下次啟動就會收到更新。
+### 🏠 一鍵開箱
 
-> 簽章**私鑰**絕不可進版控(已放在 repo 外的 `~/.tauri/`)。弄丟私鑰或密碼,既有使用者將無法再收到簽章驗證通過的更新。
+- 引導畫面按「**✨ 一鍵下載範例角色**」會自動下載 Cubism Core + 官方範例角色(Haru)。
+- **修好一個舊 bug**:這個按鈕以前會**覆蓋角色清單**(把你自己的角色洗掉只剩 Haru),
+  現在改成**合併** —— 保留你既有的角色與所有設定,只補上缺少的。
 
-### 新增 / 切換角色
+---
 
-把模型資料夾放進 `public/models/<角色名>/`,在 `public/models/characters.json` 的 `characters` 陣列加一筆(`id`、`name`、`path` 指到 `.model3.json`、可選 `scale`/`idleMinutes`/`emotions`),即可在「設定 → 角色外觀」即時切換(選擇記在 localStorage)。`emotions` 把情緒標籤(happy/sad/angry/surprised/shy/sleepy)映射到該模型的 expression 名稱或 `motion:群組名`。
-若模型的 `model3.json` 沒宣告 `Expressions`/`Motions` 或 `LipSync`/`EyeBlink` 群組是空的(常見於 VTube Studio 匯出),需補上才有表情、動作、對嘴與眨眼(可參考 `public/models/icegirl/IceGirl.model3.json`)。
+## 🐛 修好的問題
 
-## 操作說明
-
-| 操作 | 行為 |
+| 症狀 | 原因 |
 |---|---|
-| 按住角色拖曳 | 移動視窗(位置自動記憶) |
-| 點擊角色頭部 / 懸停頭部 | 摸頭表情 |
-| 點擊角色身體 | 隨機台詞 + 動作 |
-| `Ctrl+Shift+A` | 喚出/收合對話輸入框(Enter 送出,串流顯示+情緒表情+朗讀) |
-| `Ctrl+Shift+S` | 開始/結束語音輸入(需 Whisper,見 setup-speech.ps1;最長 60 秒自動結束) |
-| `Ctrl+Shift+V` / 托盤 → 看看我的螢幕 | 她截取主螢幕交給本地視覺模型,看圖並評論(截圖前自動藏起自己) |
-| 設定 → 主動行為 → 監看截圖資料夾 | 開啟後,你一截圖(Win+PrtScn)她就自動讀那張圖評論 |
-| 思考中再送一句 | 打斷舊回應,直接回答新訊息 |
-| 「○分鐘後提醒我…」/「提醒我幾點…」 | 她設提醒,到時主動跳出來講(關 App 期間錯過的會在開機補發) |
-| 閒置太久 | 她會主動找你聊天(可在設定關閉或調整分鐘數) |
-| 托盤 → 設定 → 角色外觀 | 切換 Live2D 角色(即時切換,記住選擇) |
-| 托盤 → 設定 | 角色外觀、人設、模型路由、DeepSeek Key、降級開關、語音(TTS)、主動行為、記憶 |
-| 托盤 → 點擊穿透(整個視窗) | 滑鼠事件穿透到下層視窗(再點一次恢復) |
-| 托盤 → 智慧穿透 | 游標在角色/UI 上才攔截滑鼠,其餘區域穿透到下層 |
-| 托盤 → 靜音 | 關閉台詞泡泡碎念與 TTS 朗讀 |
-| 托盤 → 結束 | 真正退出(點視窗關閉只會隱藏到托盤) |
+| 整個視窗消失(托盤也叫不回來) | 視窗被最小化時座標被存成 `-32000`,下次啟動還原到螢幕外。已加邊界檢查 |
+| 一鍵下載把角色清單洗掉 | 直接覆寫 `characters.json`,已改成合併 |
+| 看游標時視線一直往上 | 注視基準點在模型幾何中心,已上移到頭部 |
+| 「記住…」她只回「好」卻沒真的記 | 模型不呼叫工具,已加強制工具呼叫 |
+| 打字她不回應 / 說「腦袋連不上」 | 沒有可用的 LLM(見下方「給她大腦」) |
+| 區網遠端開不起來 | 綁定的 IP 不屬於本機網卡,已修正允許綁 `0.0.0.0` |
+| 語音輸入在靜音時亂吐「字幕/訂閱」 | Whisper 幻覺,已加防護 |
 
-## 專案結構
+---
 
-```
-desktop-pet-ai/
-├── src-tauri/               # Rust 核心
-│   ├── src/
-│   │   ├── main.rs
-│   │   ├── lib.rs           # Builder 組裝;後續模組規劃見註解
-│   │   ├── window.rs        # 視窗/托盤/快捷鍵/位置記憶/點擊穿透
-│   │   ├── llm/             # Provider 抽象、SSE 串流、降級、金鑰(M1)+ Agent 迴圈(M3)
-│   │   ├── speech/          # Piper TTS / Whisper STT sidecar 管理(M2)
-│   │   ├── agent/           # 工具註冊/執行、權限確認(M3)
-│   │   ├── memory/          # SQLite 長期記憶 + 對話紀錄 + 提醒(M4 / M4.5)
-│   │   ├── scheduler.rs     # 提醒到期檢查、主動行為排程(M4.5)
-│   │   ├── vision.rs        # 螢幕截圖 / 讀圖檔(xcap;縮圖→PNG→base64)(M5)
-│   │   └── watcher.rs       # 截圖資料夾監看(notify)(M5.5)
-│   ├── capabilities/        # 前端權限(Tauri v2 capability)
-│   └── tauri.conf.json
-├── src/                     # 前端(Vue 3 + TS)
-│   ├── live2d/stage.ts      # 渲染、互動、閒置動作、情緒映射、口型同步
-│   ├── llm/api.ts           # Rust LLM 命令/事件封裝(含取消)
-│   ├── speech/              # tts.ts(Piper/系統語音)、recorder.ts(錄音→16kHz WAV)、native.ts(Rust 命令)
-│   ├── passthrough.ts       # 智慧點擊穿透(游標輪詢 + 命中測試)
-│   ├── chat/                # 對話輸入框、台詞泡泡
-│   └── settings/            # 設定面板
-├── public/
-│   ├── vendor/              # 放 live2dcubismcore.min.js(見內部 README)
-│   └── models/              # 放 Live2D 模型 + active.json(見內部 README)
-└── docs/
-```
+## 📥 安裝
 
-## 授權注意事項
+1. 下載 `DesktopPetAI_0.2.0_x64-setup.exe`,雙擊安裝。
+   (若缺 WebView2,安裝程式會自動下載;Windows 11 已內建)
+2. 第一次開啟會看到 `(。・ω・。)` 引導畫面 —— 按「**✨ 一鍵下載範例角色**」即可開箱。
+3. **給她大腦**(必要,否則只能點擊互動、不能聊天),二擇一:
+   - **本地免費(推薦)**:裝 [Ollama](https://ollama.com),執行
+     `ollama pull qwen2.5:7b`
+   - **雲端**:托盤右鍵 → 設定 → 填 **DeepSeek API Key**
+4. 按 `Ctrl+Shift+A` 就能跟她聊天了。
 
-- **Cubism Core** 為 Live2D 專有軟體,須自行下載並同意其授權,不可隨本專案散布。
-- **Live2D 模型**:本專案不附帶任何模型。請使用自有或已授權模型;官方免費素材受 Live2D Free Material License 約束。
-- `pixi-live2d-display-lipsyncpatch` 為 MIT 授權,支援 lipsync(`model.speak()`),M2 對嘴功能將直接沿用。
+> **想用自己的 Live2D 模型**:托盤 → 設定 → 關於・更新 → 開啟資料夾(或引導畫面的「📁 開啟資料夾」),
+> 把模型放進 `models\`,並在 `characters.json` 加一筆。詳細步驟見 [README](README.md)。
+> Cubism Core 與模型受各自授權保護,不隨安裝包散布,需自行放入(一鍵下載會幫你處理範例)。
 
-## 開發備忘(後續里程碑)
+---
 
-- **語音架構(M2)**:sidecar 放 `%APPDATA%\com.desktoppet.ai\speech\`(`piper\piper.exe`+任一 `.onnx`;`whisper\whisper-cli.exe`+任一 `ggml-*.bin`),Rust `speech/mod.rs` 啟動子行程(隱藏主控台)。TTS 引擎為「自動」時 Piper 優先(WAV → blob URL → `model.speak()` 真實對嘴),否則 speechSynthesis + 正弦口型(`stage.ts` hookMouth)。STT:前端錄音 → WebAudio 重採樣 16kHz mono WAV → base64 → whisper-cli(`--prompt` 引導繁體輸出;base 模型仍常輸出簡體,辨識結果直接進 LLM 所以無妨,在意準確度可 `setup-speech.ps1 -WhisperModel small`)。
-- **Agent 架構(M3)**:`agent/mod.rs` 持有工具規格(OpenAI tools 格式)與執行器;`provider.rs` 的 `run_agent_loop` 串流解析 `delta.tool_calls`(按 index 累積片段,容忍 arguments 為物件的非標準實作)→ 執行工具 → 以 `role:"tool"` 回填 → 再串流,上限 4 輪。權限:`PermissionState` 持 oneshot 通道,emit `agent-permission` → 前端卡片 → `agent_permission_response` 回填,timeout 60 秒。進入工具流程後不再降級(工具可能已有副作用)。新工具加在 `tool_specs()` + `execute()` 兩處即可。
-- **記憶架構(M4)**:`memory/mod.rs` 兩張表 — memories(蒸餾事實,模型經 save_memory 工具寫入,最近 30 條 / 1500 字注入 system prompt,舊的用 search_memory LIKE 搜)、messages(對話紀錄,`load_recent_history` 在啟動時還原)。語意向量檢索與主動行為排程留 M4.5。
-- **下一步(M3 後半 / M4.5)**:寫入類工具(寫檔、執行指令)+ 沙箱與更細的權限 UI;向量檢索;主動行為排程(到點提醒、閒置關心)。
-- **情緒映射**:在 `public/models/active.json` 的 `emotions` 設定「標籤 → expression 名稱或 motion:群組名」;未設定時會嘗試同名表情,再退回隨機表情。
-- **智慧穿透實作**:穿透狀態下視窗收不到滑鼠事件,所以 `src/passthrough.ts` 以 `cursorPosition()` 輪詢(120ms)+ `hitsModel()` 命中測試切換 `setIgnoreCursorEvents`;整窗手動穿透開啟時輪詢暫停(`click-through-manual` 事件)。
-- **取消生成**:Rust `CancelState` 持有已取消的 requestId,串流迴圈每個 chunk 檢查;取消時以當下累積內容發 `chat-done` 收尾。
-- **驗收基準**:M0(顯示/拖曳/托盤)✅;M1(文字對話、本地/雲端切換、斷線降級)✅ — 降級會在泡泡顯示「(雲端連不上,改用 Ollama)」;M2(回覆朗讀+對嘴、語音輸入)✅ — Piper/Whisper 未安裝時朗讀退回系統語音、語音輸入給安裝指引。
+## ⌨️ 快捷鍵
+
+| 按鍵 | 功能 |
+|---|---|
+| `Ctrl+Shift+A` | 喚出 / 收合對話輸入框 |
+| `Ctrl+Shift+S` | 開始 / 結束語音輸入(需 Whisper) |
+| `Ctrl+Shift+D` | 免持連續對話(講完自動送出) |
+| `Ctrl+Shift+V` | 看看我的螢幕 |
+
+---
+
+## 🔐 更新檔簽章
+
+- 簽章公鑰 ID:`A2C4FCED4C49D98F`(本版起生效;舊版為 `A98F16018EB7A020`)
+- 更新包經 Ed25519(minisign)簽章,App 下載後會驗章才安裝。
+
+## 📋 系統需求
+
+- Windows 10 / 11(64 位元)
+- 聊天需要一個能連上的 LLM:本地 Ollama,或 DeepSeek API Key
+
+---
+
+*完整改動記錄見專案內 [`0615技術歸檔.md`](0615技術歸檔.md);未來方向見 [`演進路線.md`](演進路線.md)。*
