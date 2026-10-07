@@ -6,13 +6,31 @@ dist/
 src-tauri/target/
 src-tauri/gen/schemas/
 
-# Live2D 模型與 Cubism Core(授權考量,一律不入版控)
+# Live2D 資產
+#
+# ⚠️ 鐵則:Cubism Core 與「範例角色 Haru」**必須入版控**。
+# 因為前端是從 public/ 打包進 App 的:
+#   public/vendor → dist/vendor → 內嵌進 binary(用 appdata 沒有 Core 時的後備)
+#   public/models → dist/models → 內嵌進 binary(全新安裝時的示範角色)
+# 少了它們,CI 編出來的安裝檔會「可以開但沒角色」——
+# v0.2.0 就是這樣壞的(GitHub 版只有 4.3MB,正常版是 23.9MB)。
+#
+# 其餘角色模型(付費/個人素材)一律不進版控。
 public/models/*
 !public/models/README.md
 !public/models/active.example.json
 !public/models/characters.example.json
+# 官方免費範例角色(Free Material License)→ 必須隨安裝包散布
+!public/models/characters.json
+!public/models/haru/
+!public/models/haru/**
+
+# Cubism Core:專有「可散布程式碼」(Redistributable Code),依 Live2D 專有軟體授權
+# 可隨應用程式散布。來源:https://unpkg.com/live2dcubismcore@1.0.0/
+# README 要排除,min.js 必須入庫(否則安裝檔會缺 Core)
 public/vendor/*
 !public/vendor/README.md
+!public/vendor/live2dcubismcore.min.js
 
 # 角色模型原始解壓夾(付費/限定素材,授權考量不入庫)
 IceGirl_Live2d/

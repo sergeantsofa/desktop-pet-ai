@@ -52,6 +52,39 @@ jobs:
           }
           Write-Host "✅ 版本號一致:$tauri"
 
+      # 打包前檢查:public/ 底下「必須隨安裝包散布」的資產是否齊全。
+      # v0.2.0 就是少了這些,CI 編出 4.3MB 的安裝檔(正常應為 23.9MB),
+      # 使用者裝完「可以開但沒有角色」。寧可讓建置失敗,也不要再發布半殘的安裝檔。
+      - name: 檢查打包資產是否齊全
+        shell: pwsh
+        run: |
+          $required = @(
+            "public/vendor/live2dcubismcore.min.js",
+            "public/models/characters.json",
+            "public/models/haru/haru_greeter_t03.model3.json",
+            "public/models/haru/haru_greeter_t03.moc3",
+            "public/models/haru/haru_greeter_t03.2048/texture_00.png"
+          )
+          $missing = @()
+          foreach ($f in $required) {
+            if (Test-Path $f) {
+              Write-Host ("OK      {0}  ({1:N1} KB)" -f $f, ((Get-Item $f).Length / 1KB))
+            } else {
+              Write-Host ("MISSING {0}" -f $f)
+              $missing += $f
+            }
+          }
+          $pubMB = [math]::Round(((Get-ChildItem public -Recurse -File -ErrorAction SilentlyContinue |
+                     Measure-Object Length -Sum).Sum / 1MB), 2)
+          Write-Host "public/ 總大小:$pubMB MB"
+          if ($missing.Count -gt 0) {
+            throw "缺少打包資產:$($missing -join ', ') —— 安裝檔會沒有角色。請確認 public/models/haru 與 public/vendor 已入版控。"
+          }
+          if ($pubMB -lt 3) {
+            throw "public/ 只有 $pubMB MB,明顯缺檔(正常約 3.2 MB:Haru 模型 + Cubism Core)。"
+          }
+          Write-Host "✅ 打包資產齊全"
+
       # 把 RELEASE_NOTES.md 讀進 step output。
       # 注意兩點:
       #  1. tauri-action 的 releaseBody 不會把 "./檔名" 當成檔案路徑讀

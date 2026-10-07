@@ -34,9 +34,14 @@ async function loadExternalCharacters(): Promise<Character[] | null> {
     const m = (await res.json()) as Manifest;
     if (!Array.isArray(m.characters) || m.characters.length === 0) return null;
     manifestActive = m.active ?? m.characters[0].id;
-    // path 視為相對 models 資料夾 → 指向本機伺服器
+    // path 可能是兩種寫法,兩種都要支援:
+    //   "icegirl/IceGirl.model3.json"          → 相對 models 資料夾
+    //   "/models/icegirl/IceGirl.model3.json"  → 已是從伺服器根算起的完整路徑
+    // (自己組的 characters.json 常用後者;以前一律接 `${base}/models/`,
+    //  遇到後者會變成 /models/models/... → 404 → 變成「有清單卻沒角色」)
     for (const c of m.characters) {
-      c.path = `${base}/models/${c.path.replace(/^[/\\]+/, "")}`;
+      const p = c.path.replace(/^[/\\]+/, "");
+      c.path = p.startsWith("models/") ? `${base}/${p}` : `${base}/models/${p}`;
     }
     return m.characters;
   } catch {
